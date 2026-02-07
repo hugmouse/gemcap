@@ -9,10 +9,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -562,7 +564,7 @@ private fun GeminiContentList(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
-                        .width(840.dp) // TODO: make configurable
+                        .fillMaxWidth()
                         .padding(horizontal = 16.dp),
                     contentPadding = PaddingValues(top = 16.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -571,15 +573,26 @@ private fun GeminiContentList(
                         items = content, key = { _, item -> item.id }) { index, item ->
                         val highlight =
                             searchState.query.isNotBlank() && index == searchState.currentResultIndex
-                        ContentItem(
-                            item = item,
-                            styles = cachedStyles,
-                            searchQuery = searchState.query,
-                            highlight = highlight,
-                            onLinkClick = { callbacks.onLinkClick(it) },
-                            onOpenImageInNewTab = { callbacks.onOpenImageInNewTab(it) },
-                            onCopyLink = { callbacks.onCopyLink(it) },
-                            onOpenInNewTab = { callbacks.onOpenInNewTab(it) })
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.TopCenter
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(840.dp)
+                            ) { // TODO: make configurable
+                                ContentItem(
+                                    item = item,
+                                    styles = cachedStyles,
+                                    searchQuery = searchState.query,
+                                    highlight = highlight,
+                                    onLinkClick = { callbacks.onLinkClick(it) },
+                                    onOpenImageInNewTab = { callbacks.onOpenImageInNewTab(it) },
+                                    onCopyLink = { callbacks.onCopyLink(it) },
+                                    onOpenInNewTab = { callbacks.onOpenInNewTab(it) }
+                                )
+                            }
+                        }
                     }
                 }
             }
