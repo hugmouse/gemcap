@@ -1,0 +1,28 @@
+# Welcome to Gemcap
+
+Your gateway to the small internet.
+
+## Getting Started
+
+Enter a gemini:// URL in the address bar above, or explore some of these popular capsules:
+
+## Aggregators
+
+=> gemini://warmedal.se/~antenna/ Antenna
+=> gemini://skyjake.fi/~Cosmos/ Cosmos
+=> gemini://geddit.glv.one/ Geddit
+=> gemini://rawtext.club/~sloum/spacewalk.gmi Spacewalk
+=> gemini://gemini.circumlunar.space/capcom/ CAPCOM
+=> gemini://calcuode.com/gmisub-aggregate.gmi gmisub
+
+## Search Engines
+
+=> gemini://geminispace.info/ Geminispace.info
+=> gemini://tlgs.one/ TLGS
+=> gemini://kennedy.gemi.dev/ Kennedy
+
+## About This Browser
+
+This is an open-source, Kotlin Compose based browser that is heavily inspired by Lagrange and Google Chrome.
+
+=> https://github.com/hugmouse/gemcap
