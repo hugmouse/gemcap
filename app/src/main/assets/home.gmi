@@ -10,16 +10,25 @@ Enter a gemini:// URL in the address bar above, or explore some of these popular
 
 => gemini://warmedal.se/~antenna/ Antenna
 => gemini://skyjake.fi/~Cosmos/ Cosmos
-=> gemini://geddit.glv.one/ Geddit
-=> gemini://rawtext.club/~sloum/spacewalk.gmi Spacewalk
 => gemini://gemini.circumlunar.space/capcom/ CAPCOM
 => gemini://calcuode.com/gmisub-aggregate.gmi gmisub
 
 ## Search Engines
 
+=> gemini://gemini-search.mysh.dev Gemsearch
 => gemini://geminispace.info/ Geminispace.info
 => gemini://tlgs.one/ TLGS
 => gemini://kennedy.gemi.dev/ Kennedy
+
+## Archives
+
+Like Wayback machine, but for Gemini.
+
+=> gemini://kennedy.gemi.dev/archive/ Delorean Time Machine
+
+## Forums
+
+=> gemini://bbs.geminispace.org BBS
 
 ## About This Browser
 
