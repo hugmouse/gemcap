@@ -1,3 +1,5 @@
+![Gemcap logo](https://github.com/user-attachments/assets/25d71cea-101a-4813-b54d-8ae8259ff2e4)
+
 # Gemcap
 
 An Android browser for the Gemini protocol, built with Kotlin.
