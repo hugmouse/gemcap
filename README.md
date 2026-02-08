@@ -4,6 +4,16 @@
 
 An Android browser for the Gemini protocol, built with Kotlin.
 
+## Join the closed testing
+
+Join the Google Group to get access to official builds on Google Play!
+
+- Join the group
+- Click on a special link on "*Join the Gemcap testing on Android!*"
+- Download the build from Google Play!
+
+https://groups.google.com/u/0/g/gemcap-testing/c/80RyebVFEXg
+
 ## Getting Started
 
 ### Prerequisites
