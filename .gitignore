@@ -148,3 +148,8 @@ hs_err_pid*
 
 # Some other stuff
 .vscode
+
+# Android app builds
+
+*.apk
+*.aab
