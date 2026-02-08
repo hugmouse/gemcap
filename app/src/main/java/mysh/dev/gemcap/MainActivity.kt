@@ -1,19 +1,19 @@
 package mysh.dev.gemcap
 
 import android.app.Activity
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import mysh.dev.gemcap.data.SettingsRepository
@@ -32,7 +32,17 @@ class MainActivity : ComponentActivity() {
 
         val settingsRepository = SettingsRepository(this)
 
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.auto(
+                lightScrim = Color.TRANSPARENT,
+                darkScrim = Color.TRANSPARENT
+            ),
+            navigationBarStyle = SystemBarStyle.auto(
+                lightScrim = Color.TRANSPARENT,
+                darkScrim = Color.TRANSPARENT
+            )
+        )
+
         setContent {
             var themeMode by remember { mutableStateOf(settingsRepository.themeMode) }
             var fontScale by remember { mutableFloatStateOf(settingsRepository.fontSize.scaleFactor) }
@@ -48,16 +58,13 @@ class MainActivity : ComponentActivity() {
                 darkTheme = isDarkTheme,
                 fontScale = fontScale
             ) {
-                val colorScheme = MaterialTheme.colorScheme
                 val view = LocalView.current
                 if (!view.isInEditMode) {
                     SideEffect {
                         val activity = view.context as? Activity ?: return@SideEffect
-                        val window = activity.window
-                        // TODO: statusBarColor is deprecated, nuke it
-                        window.statusBarColor = colorScheme.surfaceVariant.toArgb()
-                        WindowCompat.getInsetsController(window, view).apply {
+                        WindowCompat.getInsetsController(activity.window, view).apply {
                             isAppearanceLightStatusBars = !isDarkTheme
+                            isAppearanceLightNavigationBars = !isDarkTheme
                         }
                     }
                 }
