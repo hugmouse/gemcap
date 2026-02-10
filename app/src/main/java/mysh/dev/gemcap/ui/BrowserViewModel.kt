@@ -236,7 +236,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val prompt = dialogManager.getInputPrompt() ?: return
         dialogManager.dismissInputPrompt()
 
-        val encodedInput = URLEncoder.encode(userInput, "UTF-8").replace("+", "%20")
+        val encodedInput = URLEncoder.encode(userInput, "UTF-8")
         val targetUrl = prompt.targetUrl
         val newUrl = if (targetUrl.contains("%s")) {
             targetUrl.replace("%s", encodedInput)
