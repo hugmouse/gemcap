@@ -617,12 +617,30 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
         val job = viewModelScope.launch {
             var targetUrl = currentTab.url.trim()
+            val isLocalPage = targetUrl == HOME_URL || targetUrl == "about:gemtext"
+
+            // Check if input looks like a domain/URL or a search query
+            if (!isLocalPage && !targetUrl.contains("://")) {
+                val looksLikeUrl = targetUrl.contains(".") && !targetUrl.contains(" ")
+                targetUrl = if (looksLikeUrl) {
+                    "gemini://$targetUrl"
+                } else {
+                    val encodedQuery = URLEncoder.encode(targetUrl, "UTF-8")
+                    "gemini://gemini-search.mysh.dev/?$encodedQuery"
+                }
+            }
+
+            if (addToHistory) {
+                currentTab.addToHistory(targetUrl)
+            } else {
+                currentTab.updateUrl(targetUrl)
+            }
 
             /*
                TODO: probably add sort of a enum in the future if we are going to have more than 1
                gemtext page included with the app
              */
-            if (targetUrl == HOME_URL || targetUrl == "about:gemtext") {
+            if (isLocalPage) {
                 try {
                     if (forceReload) {
                         currentTab.isLoading = true
@@ -659,23 +677,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         loadingJobs.remove(tabId)
                     }
                 }
-            }
-
-            // Check if input looks like a domain/URL or a search query
-            if (!targetUrl.contains("://")) {
-                val looksLikeUrl = targetUrl.contains(".") && !targetUrl.contains(" ")
-                targetUrl = if (looksLikeUrl) {
-                    "gemini://$targetUrl"
-                } else {
-                    val encodedQuery = URLEncoder.encode(targetUrl, "UTF-8")
-                    "gemini://gemini-search.mysh.dev/?$encodedQuery"
-                }
-            }
-
-            if (addToHistory) {
-                currentTab.addToHistory(targetUrl)
-            } else {
-                currentTab.updateUrl(targetUrl)
             }
 
             if (!addToHistory && !forceReload) {
