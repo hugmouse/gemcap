@@ -21,6 +21,11 @@ data class PageCache(
     val title: String
 )
 
+data class ScrollPosition(
+    val firstVisibleItemIndex: Int = 0,
+    val firstVisibleItemScrollOffset: Int = 0
+)
+
 // TODO: move it out of here somewhere, this does not belong here
 const val HOME_URL = "about:home"
 
@@ -31,6 +36,8 @@ class TabState(
     val id: String = UUID.randomUUID().toString()
 
     var url by mutableStateOf(initialUrl)
+    var displayedUrl by mutableStateOf(initialUrl)
+        private set
     var title by mutableStateOf("New Tab")
     var isLoading by mutableStateOf(false)
     var error by mutableStateOf<GeminiError?>(null)
@@ -46,6 +53,9 @@ class TabState(
 
     // Page cache for back/forward navigation
     private val pageCache = mutableMapOf<String, PageCache>()
+
+    // Scroll position cache for back/forward navigation
+    private val scrollPositions = mutableMapOf<String, ScrollPosition>()
 
     /**
      * Get cached content for a URL, if available.
@@ -67,15 +77,34 @@ class TabState(
     /**
      * Apply cached page data to current state.
      */
-    fun applyCachedPage(cached: PageCache) {
+    fun applyCachedPage(pageUrl: String, cached: PageCache) {
         content = cached.content
         rawBody = cached.rawBody
         title = cached.title
         error = null
+        displayedUrl = pageUrl
+    }
+
+    fun getScrollPosition(pageUrl: String): ScrollPosition =
+        scrollPositions[pageUrl] ?: ScrollPosition()
+
+    fun saveScrollPosition(
+        pageUrl: String,
+        firstVisibleItemIndex: Int,
+        firstVisibleItemScrollOffset: Int
+    ) {
+        scrollPositions[pageUrl] = ScrollPosition(
+            firstVisibleItemIndex = firstVisibleItemIndex,
+            firstVisibleItemScrollOffset = firstVisibleItemScrollOffset
+        )
     }
 
     fun updateUrl(newUrl: String) {
         url = newUrl
+    }
+
+    fun updateDisplayedUrl(newUrl: String) {
+        displayedUrl = newUrl
     }
 
     fun addToHistory(newUrl: String) {

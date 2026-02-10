@@ -502,6 +502,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             else -> handleDownloadResponse(response, tab, finalUrl, mimeType)
         }
 
+        tab.updateDisplayedUrl(finalUrl)
         tab.cachePage(finalUrl, tab.content, tab.rawBody, tab.title)
         if (addToHistory) {
             historyManager.record(finalUrl, tab.title)
@@ -617,12 +618,30 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
         val job = viewModelScope.launch {
             var targetUrl = currentTab.url.trim()
+            val isLocalPage = targetUrl == HOME_URL || targetUrl == "about:gemtext"
+
+            // Check if input looks like a domain/URL or a search query
+            if (!isLocalPage && !targetUrl.contains("://")) {
+                val looksLikeUrl = targetUrl.contains(".") && !targetUrl.contains(" ")
+                targetUrl = if (looksLikeUrl) {
+                    "gemini://$targetUrl"
+                } else {
+                    val encodedQuery = URLEncoder.encode(targetUrl, "UTF-8")
+                    "gemini://gemini-search.mysh.dev/?$encodedQuery"
+                }
+            }
+
+            if (addToHistory) {
+                currentTab.addToHistory(targetUrl)
+            } else {
+                currentTab.updateUrl(targetUrl)
+            }
 
             /*
                TODO: probably add sort of a enum in the future if we are going to have more than 1
                gemtext page included with the app
              */
-            if (targetUrl == HOME_URL || targetUrl == "about:gemtext") {
+            if (isLocalPage) {
                 try {
                     if (forceReload) {
                         currentTab.isLoading = true
@@ -638,6 +657,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                             .firstOrNull { it.level == 1 }
                             ?.let { currentTab.title = it.text }
                         currentTab.error = null
+                        currentTab.updateDisplayedUrl(targetUrl)
                         currentTab.cachePage(
                             targetUrl,
                             currentTab.content,
@@ -661,27 +681,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
 
-            // Check if input looks like a domain/URL or a search query
-            if (!targetUrl.contains("://")) {
-                val looksLikeUrl = targetUrl.contains(".") && !targetUrl.contains(" ")
-                targetUrl = if (looksLikeUrl) {
-                    "gemini://$targetUrl"
-                } else {
-                    val encodedQuery = URLEncoder.encode(targetUrl, "UTF-8")
-                    "gemini://gemini-search.mysh.dev/?$encodedQuery"
-                }
-            }
-
-            if (addToHistory) {
-                currentTab.addToHistory(targetUrl)
-            } else {
-                currentTab.updateUrl(targetUrl)
-            }
-
             if (!addToHistory && !forceReload) {
                 val cached = currentTab.getCachedPage(targetUrl)
                 if (cached != null) {
-                    currentTab.applyCachedPage(cached)
+                    currentTab.applyCachedPage(targetUrl, cached)
                     return@launch
                 }
             }
