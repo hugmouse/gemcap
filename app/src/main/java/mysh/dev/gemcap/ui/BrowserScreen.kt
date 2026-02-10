@@ -21,8 +21,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -47,6 +47,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -61,6 +62,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
 import mysh.dev.gemcap.BuildConfig
@@ -453,6 +456,7 @@ private fun BrowserContent(
 
             else -> {
                 GeminiContentList(
+                    tab = activeTab,
                     content = activeTab.content,
                     isLoading = activeTab.isLoading,
                     searchState = searchState,
@@ -520,6 +524,7 @@ private fun ErrorDisplay(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GeminiContentList(
+    tab: TabState,
     content: ImmutableList<GeminiContent>,
     isLoading: Boolean,
     searchState: SearchState,
@@ -528,12 +533,32 @@ private fun GeminiContentList(
     logRecomposition { ">>> GeminiContentList (${content.size} items)" }
 
     val cachedStyles = rememberCachedTextStyles()
-    val listState = rememberLazyListState()
+    val currentPageUrl = tab.displayedUrl
+    val listState = remember(currentPageUrl) {
+        val scrollPosition = tab.getScrollPosition(currentPageUrl)
+        LazyListState(
+            firstVisibleItemIndex = scrollPosition.firstVisibleItemIndex,
+            firstVisibleItemScrollOffset = scrollPosition.firstVisibleItemScrollOffset
+        )
+    }
     val pullToRefreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
 
-    // TODO: seem to retain data between views and scrolling to unexpected position
-    LaunchedEffect(searchState.currentResultIndex) {
+    LaunchedEffect(currentPageUrl, listState) {
+        snapshotFlow {
+            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+        }
+            .distinctUntilChanged()
+            .collectLatest { (index, offset) ->
+                tab.saveScrollPosition(
+                    pageUrl = currentPageUrl,
+                    firstVisibleItemIndex = index,
+                    firstVisibleItemScrollOffset = offset
+                )
+            }
+    }
+
+    LaunchedEffect(currentPageUrl, searchState.currentResultIndex) {
         if (searchState.currentResultIndex != -1) {
             listState.animateScrollToItem(searchState.currentResultIndex)
         }

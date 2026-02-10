@@ -502,6 +502,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             else -> handleDownloadResponse(response, tab, finalUrl, mimeType)
         }
 
+        tab.updateDisplayedUrl(finalUrl)
         tab.cachePage(finalUrl, tab.content, tab.rawBody, tab.title)
         if (addToHistory) {
             historyManager.record(finalUrl, tab.title)
@@ -656,6 +657,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                             .firstOrNull { it.level == 1 }
                             ?.let { currentTab.title = it.text }
                         currentTab.error = null
+                        currentTab.updateDisplayedUrl(targetUrl)
                         currentTab.cachePage(
                             targetUrl,
                             currentTab.content,
@@ -682,7 +684,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             if (!addToHistory && !forceReload) {
                 val cached = currentTab.getCachedPage(targetUrl)
                 if (cached != null) {
-                    currentTab.applyCachedPage(cached)
+                    currentTab.applyCachedPage(targetUrl, cached)
                     return@launch
                 }
             }
