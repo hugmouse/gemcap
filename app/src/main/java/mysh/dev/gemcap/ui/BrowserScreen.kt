@@ -534,7 +534,7 @@ private fun GeminiContentList(
 
     val cachedStyles = rememberCachedTextStyles()
     val currentPageUrl = tab.displayedUrl
-    val listState = remember(currentPageUrl) {
+    val listState = remember(tab.id, currentPageUrl) {
         val scrollPosition = tab.getScrollPosition(currentPageUrl)
         LazyListState(
             firstVisibleItemIndex = scrollPosition.firstVisibleItemIndex,
@@ -544,7 +544,7 @@ private fun GeminiContentList(
     val pullToRefreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(currentPageUrl, listState) {
+    LaunchedEffect(tab.id, currentPageUrl, listState) {
         snapshotFlow {
             listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
         }
