@@ -50,7 +50,6 @@ fun AddressBarSuggestions(
     ) {
         Surface(
             modifier = modifier
-                .fillMaxWidth()
                 .heightIn(max = AddressBarSuggestionsDefaults.MaxHeight),
             shape = RoundedCornerShape(AddressBarSuggestionsDefaults.CornerRadius),
             tonalElevation = AddressBarSuggestionsDefaults.Elevation,
