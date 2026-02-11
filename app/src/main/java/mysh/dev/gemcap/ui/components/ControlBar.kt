@@ -22,55 +22,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
-import kotlinx.collections.immutable.ImmutableList
-import mysh.dev.gemcap.domain.HistoryEntry
+import mysh.dev.gemcap.ui.callbacks.BrowserCallbacks
 import mysh.dev.gemcap.ui.components.controlBarComponents.AddressBar
 import mysh.dev.gemcap.ui.components.controlBarComponents.NavigationButtons
 import mysh.dev.gemcap.ui.components.controlBarComponents.SearchTextOnPageBar
 import mysh.dev.gemcap.ui.components.controlBarComponents.TabCounterButton
 import mysh.dev.gemcap.ui.components.controlBarComponents.ToolbarMenu
+import mysh.dev.gemcap.ui.model.AddressBarState
+import mysh.dev.gemcap.ui.model.ToolbarState
 
 @Composable
 fun ControlBar(
-    url: String,
-    onUrlChange: (String) -> Unit,
-    onGo: () -> Unit,
-    canGoBack: Boolean,
-    onBack: () -> Unit,
-    canGoForward: Boolean,
-    onForward: () -> Unit,
-    onRefresh: () -> Unit,
-    onHome: () -> Unit,
-    onNewTab: () -> Unit,
-    onTabsButtonClick: () -> Unit,
-    tabCount: Int,
-    isCompactMode: Boolean,
-    isBookmarked: Boolean,
-    onToggleBookmark: () -> Unit,
-    showMenu: Boolean,
-    onMenuClick: () -> Unit,
-    onMenuDismiss: () -> Unit,
-    onBookmarksClick: () -> Unit,
-    onHistoryClick: () -> Unit,
-    onCertificatesClick: () -> Unit,
-    hasSecureConnection: Boolean,
-    onConnectionInfoClick: () -> Unit,
-    suggestions: ImmutableList<HistoryEntry>,
-    showSuggestions: Boolean,
-    onSuggestionClick: (HistoryEntry) -> Unit,
-    onSuggestionsDismiss: () -> Unit,
-    onSetAsHomePage: () -> Unit,
-    searchActive: Boolean,
-    onToggleSearch: () -> Unit,
-    onSearch: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    onIdentityClick: () -> Unit = {},
-    hasActiveIdentity: Boolean = false,
-    onSettingsClick: () -> Unit = {},
-    searchResultCount: Int = 0,
-    searchCurrentIndex: Int = -1,
-    onSearchNext: () -> Unit = {},
-    onSearchPrevious: () -> Unit = {}
+    addressBarState: AddressBarState,
+    toolbarState: ToolbarState,
+    onShowTabSwitcher: () -> Unit,
+    callbacks: BrowserCallbacks,
+    modifier: Modifier = Modifier
 ) {
     val borderColor = MaterialTheme.colorScheme.surfaceVariant
     var searchQuery by remember { mutableStateOf("") }
@@ -93,54 +60,54 @@ fun ControlBar(
             .padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (searchActive) {
+        if (toolbarState.searchActive) {
             SearchTextOnPageBar(
                 query = searchQuery,
                 onQueryChange = { searchQuery = it },
-                onSearch = onSearch,
-                onClose = onToggleSearch,
-                resultCount = searchResultCount,
-                currentIndex = searchCurrentIndex,
-                onPrevious = onSearchPrevious,
-                onNext = onSearchNext,
+                onSearch = { callbacks.onSearch(it) },
+                onClose = { callbacks.onToggleSearch() },
+                resultCount = toolbarState.searchResultCount,
+                currentIndex = toolbarState.searchCurrentIndex,
+                onPrevious = { callbacks.onGoToPreviousResult() },
+                onNext = { callbacks.onGoToNextResult() },
                 modifier = Modifier.weight(1f)
             )
         } else {
             NavigationButtons(
-                canGoBack = canGoBack,
-                onBack = onBack,
-                canGoForward = canGoForward,
-                onForward = onForward,
-                onRefresh = onRefresh,
-                onHome = onHome,
-                isCompactMode = isCompactMode
+                canGoBack = toolbarState.canGoBack,
+                onBack = { callbacks.onBack() },
+                canGoForward = toolbarState.canGoForward,
+                onForward = { callbacks.onForward() },
+                onRefresh = { callbacks.onRefresh() },
+                onHome = { callbacks.onHome() },
+                isCompactMode = toolbarState.isCompactMode
             )
 
             AddressBar(
-                url = url,
-                onUrlChange = onUrlChange,
-                onGo = onGo,
-                hasSecureConnection = hasSecureConnection,
-                onConnectionInfoClick = onConnectionInfoClick,
-                suggestions = suggestions,
-                showSuggestions = showSuggestions,
-                onSuggestionClick = onSuggestionClick,
-                onSuggestionsDismiss = onSuggestionsDismiss,
+                url = addressBarState.url,
+                onUrlChange = { callbacks.onUrlChange(it) },
+                onGo = { url -> callbacks.onGo(url) },
+                hasSecureConnection = addressBarState.hasSecureConnection,
+                onConnectionInfoClick = { callbacks.onConnectionInfoClick() },
+                suggestions = addressBarState.autocomplete.suggestions,
+                showSuggestions = addressBarState.autocomplete.showSuggestions,
+                onSuggestionClick = { callbacks.onSuggestionClick(it) },
+                onSuggestionsDismiss = { callbacks.onSuggestionsDismiss() },
                 modifier = Modifier.weight(1f)
             )
 
-            if (isCompactMode) {
-                IconButton(onClick = onNewTab) {
+            if (toolbarState.isCompactMode) {
+                IconButton(onClick = { callbacks.onNewTab() }) {
                     Icon(Icons.Default.Add, contentDescription = "New Tab")
                 }
             }
 
-            if (!isCompactMode) {
-                IconButton(onClick = onIdentityClick) {
+            if (!toolbarState.isCompactMode) {
+                IconButton(onClick = { callbacks.onIdentityClick() }) {
                     Icon(
                         Icons.Default.Person,
                         contentDescription = "Identity",
-                        tint = if (hasActiveIdentity)
+                        tint = if (toolbarState.hasActiveIdentity)
                             MaterialTheme.colorScheme.primary
                         else
                             MaterialTheme.colorScheme.onSurfaceVariant
@@ -148,29 +115,29 @@ fun ControlBar(
                 }
             }
 
-            TabCounterButton(tabCount = tabCount, onClick = onTabsButtonClick)
+            TabCounterButton(tabCount = toolbarState.tabCount, onClick = onShowTabSwitcher)
 
-            if (!isCompactMode) {
-                IconButton(onClick = onToggleSearch) {
+            if (!toolbarState.isCompactMode) {
+                IconButton(onClick = { callbacks.onToggleSearch() }) {
                     Icon(Icons.Default.Search, contentDescription = "Search in page")
                 }
             }
         }
 
         ToolbarMenu(
-            showMenu = showMenu,
-            onMenuClick = onMenuClick,
-            onMenuDismiss = onMenuDismiss,
-            isCompactMode = isCompactMode,
-            isBookmarked = isBookmarked,
-            hasActiveIdentity = hasActiveIdentity,
-            onToggleSearch = onToggleSearch,
-            onIdentityClick = onIdentityClick,
-            onToggleBookmark = onToggleBookmark,
-            onBookmarksClick = onBookmarksClick,
-            onHistoryClick = onHistoryClick,
-            onSetAsHomePage = onSetAsHomePage,
-            onSettingsClick = onSettingsClick
+            showMenu = toolbarState.showMenu,
+            onMenuClick = { callbacks.onShowMenu() },
+            onMenuDismiss = { callbacks.onDismissMenu() },
+            isCompactMode = toolbarState.isCompactMode,
+            isBookmarked = toolbarState.isBookmarked,
+            hasActiveIdentity = toolbarState.hasActiveIdentity,
+            onToggleSearch = { callbacks.onToggleSearch() },
+            onIdentityClick = { callbacks.onIdentityClick() },
+            onToggleBookmark = { callbacks.onToggleBookmark() },
+            onBookmarksClick = { callbacks.onShowBookmarks() },
+            onHistoryClick = { callbacks.onShowHistory() },
+            onSetAsHomePage = { callbacks.onSetAsHomePage() },
+            onSettingsClick = { callbacks.onShowSettings() }
         )
     }
 }

@@ -79,7 +79,8 @@ import mysh.dev.gemcap.ui.components.TopTabStrip
 import mysh.dev.gemcap.ui.content.ContentItem
 import mysh.dev.gemcap.ui.content.rememberCachedTextStyles
 import mysh.dev.gemcap.ui.model.ContentUiState
-import mysh.dev.gemcap.ui.model.ControlBarState
+import mysh.dev.gemcap.ui.model.AddressBarState
+import mysh.dev.gemcap.ui.model.ToolbarState
 import mysh.dev.gemcap.ui.model.DialogsUiState
 import mysh.dev.gemcap.ui.model.HOME_URL
 import mysh.dev.gemcap.ui.model.SearchState
@@ -133,20 +134,28 @@ fun BrowserScreen(
     // TODO: check if android API provides some screen sizes since this won't fly in long term
     val isCompactMode = configuration.screenWidthDp.dp < 600.dp
 
-    val controlBarState by remember {
+    val addressBarState by remember {
         derivedStateOf {
             val tab = viewModel.activeTab
-            ControlBarState(
+            AddressBarState(
                 url = tab?.url ?: "",
+                hasSecureConnection = viewModel.certificateState.currentServerCertInfo != null,
+                autocomplete = viewModel.autocompleteState
+            )
+        }
+    }
+
+    val toolbarState by remember {
+        derivedStateOf {
+            val tab = viewModel.activeTab
+            ToolbarState(
                 canGoBack = tab?.canGoBack() ?: false,
                 canGoForward = tab?.canGoForward() ?: false,
                 tabCount = viewModel.tabs.size,
                 isCompactMode = isCompactMode,
                 isBookmarked = viewModel.isCurrentPageBookmarked,
                 showMenu = viewModel.panelState.showMenu,
-                hasSecureConnection = viewModel.certificateState.currentServerCertInfo != null,
                 searchActive = viewModel.searchState.isActive,
-                autocomplete = viewModel.autocompleteState,
                 hasActiveIdentity = viewModel.hasActiveIdentityForCurrentUrl,
                 searchResultCount = viewModel.searchState.results.size,
                 searchCurrentIndex = viewModel.searchState.currentResultIndex
@@ -183,7 +192,8 @@ fun BrowserScreen(
     BrowserScaffold(
         modifier = modifier,
         tabsState = tabsState,
-        controlBarState = controlBarState,
+        addressBarState = addressBarState,
+        toolbarState = toolbarState,
         dialogsState = dialogsState,
         contentState = contentState,
         showTabSwitcher = showTabSwitcher,
@@ -202,7 +212,8 @@ fun BrowserScreen(
 private fun BrowserScaffold(
     modifier: Modifier,
     tabsState: TabsUiState,
-    controlBarState: ControlBarState,
+    addressBarState: AddressBarState,
+    toolbarState: ToolbarState,
     dialogsState: DialogsUiState,
     contentState: ContentUiState,
     showTabSwitcher: Boolean,
@@ -243,7 +254,8 @@ private fun BrowserScaffold(
             topBar = {
                 BrowserControlBar(
                     tabsState = tabsState,
-                    controlBarState = controlBarState,
+                    addressBarState = addressBarState,
+                    toolbarState = toolbarState,
                     onShowTabSwitcher = onShowTabSwitcher,
                     callbacks = callbacks
                 )
@@ -306,7 +318,8 @@ private fun normalizeHomeUrl(rawUrl: String): String {
 @Composable
 private fun BrowserControlBar(
     tabsState: TabsUiState,
-    controlBarState: ControlBarState,
+    addressBarState: AddressBarState,
+    toolbarState: ToolbarState,
     onShowTabSwitcher: () -> Unit,
     callbacks: BrowserCallbacks
 ) {
@@ -320,7 +333,7 @@ private fun BrowserControlBar(
                 )
             )
         ) {
-            if (!controlBarState.isCompactMode) {
+            if (!toolbarState.isCompactMode) {
                 TabStripSection(
                     tabs = tabsState.tabs,
                     activeTabId = tabsState.activeTabId,
@@ -328,9 +341,10 @@ private fun BrowserControlBar(
                 )
             }
 
-            if (controlBarState.url.isNotEmpty() || tabsState.activeTab != null) {
+            if (addressBarState.url.isNotEmpty() || tabsState.activeTab != null) {
                 ControlBarSection(
-                    state = controlBarState,
+                    addressBarState = addressBarState,
+                    toolbarState = toolbarState,
                     onShowTabSwitcher = onShowTabSwitcher,
                     callbacks = callbacks
                 )
@@ -361,52 +375,19 @@ private fun TabStripSection(
 
 @Composable
 private fun ControlBarSection(
-    state: ControlBarState,
+    addressBarState: AddressBarState,
+    toolbarState: ToolbarState,
     onShowTabSwitcher: () -> Unit,
     callbacks: BrowserCallbacks
 ) {
-    logRecomposition { ">>> ControlBarSection (url=${state.url})" }
+    logRecomposition { ">>> ControlBarSection (url=${addressBarState.url})" }
 
-    // beautiful
     ControlBar(
-        url = state.url,
-        onUrlChange = { callbacks.onUrlChange(it) },
-        onGo = { callbacks.onGo() },
-        canGoBack = state.canGoBack,
-        onBack = { callbacks.onBack() },
-        canGoForward = state.canGoForward,
-        onForward = { callbacks.onForward() },
-        onRefresh = { callbacks.onRefresh() },
-        onHome = { callbacks.onHome() },
-        onNewTab = { callbacks.onNewTab() },
-        onTabsButtonClick = onShowTabSwitcher,
-        tabCount = state.tabCount,
-        isCompactMode = state.isCompactMode,
-        isBookmarked = state.isBookmarked,
-        onToggleBookmark = { callbacks.onToggleBookmark() },
-        showMenu = state.showMenu,
-        onMenuClick = { callbacks.onShowMenu() },
-        onMenuDismiss = { callbacks.onDismissMenu() },
-        onBookmarksClick = { callbacks.onShowBookmarks() },
-        onHistoryClick = { callbacks.onShowHistory() },
-        onCertificatesClick = { callbacks.onShowCertificates() },
-        hasSecureConnection = state.hasSecureConnection,
-        onConnectionInfoClick = { callbacks.onConnectionInfoClick() },
-        onSetAsHomePage = { callbacks.onSetAsHomePage() },
-        searchActive = state.searchActive,
-        onSearch = { callbacks.onSearch(it) },
-        onToggleSearch = { callbacks.onToggleSearch() },
-        suggestions = state.autocomplete.suggestions,
-        showSuggestions = state.autocomplete.showSuggestions,
-        onSuggestionClick = { callbacks.onSuggestionClick(it) },
-        onSuggestionsDismiss = { callbacks.onSuggestionsDismiss() },
-        onIdentityClick = { callbacks.onIdentityClick() },
-        hasActiveIdentity = state.hasActiveIdentity,
-        onSettingsClick = { callbacks.onShowSettings() },
-        searchResultCount = state.searchResultCount,
-        searchCurrentIndex = state.searchCurrentIndex,
-        onSearchNext = { callbacks.onGoToNextResult() },
-        onSearchPrevious = { callbacks.onGoToPreviousResult() })
+        addressBarState = addressBarState,
+        toolbarState = toolbarState,
+        onShowTabSwitcher = onShowTabSwitcher,
+        callbacks = callbacks
+    )
 }
 
 @Composable

@@ -101,6 +101,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     private val historyManager = HistoryManager(
         repository = repository,
+        scope = viewModelScope,
         getPanelState = { panelState },
         updatePanelState = { panelState = it }
     )
@@ -219,7 +220,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun onUrlChange(newUrl: String) {
-        activeTab?.updateUrl(newUrl)
         historyManager.updateSuggestions(newUrl)
     }
 
