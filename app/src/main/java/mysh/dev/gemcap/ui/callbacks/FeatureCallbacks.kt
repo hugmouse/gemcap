@@ -11,7 +11,7 @@ import mysh.dev.gemcap.network.IdentityParams
 interface NavigationCallbacks {
     fun onLinkClick(url: String)
     fun onUrlChange(url: String)
-    fun onGo()
+    fun onGo(url: String)
     fun onBack()
     fun onForward()
     fun onRefresh()

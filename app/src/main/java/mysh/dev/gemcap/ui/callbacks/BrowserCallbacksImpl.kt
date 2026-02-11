@@ -26,7 +26,10 @@ class BrowserCallbacksImpl(
     // NavigationCallbacks
     override fun onLinkClick(url: String) = viewModel.onLinkClick(url)
     override fun onUrlChange(url: String) = viewModel.onUrlChange(url)
-    override fun onGo() = viewModel.loadPage(addToHistory = true)
+    override fun onGo(url: String) {
+        viewModel.activeTab?.updateUrl(url)
+        viewModel.loadPage(addToHistory = true)
+    }
     override fun onBack() = viewModel.goBack()
     override fun onForward() = viewModel.goForward()
     override fun onRefresh() = viewModel.reload()

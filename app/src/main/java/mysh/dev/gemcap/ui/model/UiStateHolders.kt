@@ -18,20 +18,29 @@ import mysh.dev.gemcap.domain.TofuDomainMismatchState
 import mysh.dev.gemcap.domain.TofuWarningState
 
 /**
- * State holder for TopControlBar
+ * State holder for AddressBar
+ * changes when URL / autocomplete / connection status change.
  */
 @Stable
-data class ControlBarState(
+data class AddressBarState(
     val url: String,
+    val hasSecureConnection: Boolean,
+    val autocomplete: AutocompleteState
+)
+
+/**
+ * State holder for toolbar buttons
+ * changes when navigation / tabs / menu state change
+ */
+@Stable
+data class ToolbarState(
     val canGoBack: Boolean,
     val canGoForward: Boolean,
     val tabCount: Int,
     val isCompactMode: Boolean,
     val isBookmarked: Boolean,
     val showMenu: Boolean,
-    val hasSecureConnection: Boolean,
     val searchActive: Boolean,
-    val autocomplete: AutocompleteState,
     val hasActiveIdentity: Boolean,
     val searchResultCount: Int = 0,
     val searchCurrentIndex: Int = -1
