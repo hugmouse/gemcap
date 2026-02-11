@@ -1,13 +1,10 @@
 package mysh.dev.gemcap.ui.components.controlBarComponents
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -84,17 +81,15 @@ fun AddressBar(
         initialSelection = TextRange(url.length)
     )
     var isFocused by remember { mutableStateOf(false) }
-    var isSyncing by remember { mutableStateOf(false) }
-    val shouldKeepSuggestionsMounted = isFocused && textFieldState.text.length >= 2
 
     LaunchedEffect(url, isFocused) {
         if (isFocused) return@LaunchedEffect
         val currentText = textFieldState.text.toString()
         if (url != currentText) {
-                textFieldState.edit {
-                    replace(0, length, url)
-                    selection = TextRange(url.length)
-                }
+            textFieldState.edit {
+                replace(0, length, url)
+                selection = TextRange(url.length)
+            }
         }
     }
 
@@ -103,7 +98,7 @@ fun AddressBar(
             .drop(1)
             .distinctUntilChanged()
             .collectLatest { newText ->
-                if (isFocused && !isSyncing) {
+                if (isFocused) {
                     onUrlChange(newText)
                 }
             }
@@ -192,7 +187,7 @@ fun AddressBar(
             }
         )
 
-        if (shouldKeepSuggestionsMounted && showSuggestions && suggestions.isNotEmpty()) {
+        if (showSuggestions && suggestions.isNotEmpty()) {
             AddressBarSuggestions(
                 suggestions = suggestions,
                 onSuggestionClick = { entry ->
@@ -219,7 +214,9 @@ private fun CertificateValidityIcon(
         Icon(
             imageVector = if (hasSecureConnection) Icons.Default.Lock else Icons.Default.LockOpen,
             contentDescription = if (hasSecureConnection) "Secure connection" else "Insecure connection",
-            tint = if (hasSecureConnection) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            tint = if (hasSecureConnection) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                alpha = 0.5f
+            )
         )
     }
 }
