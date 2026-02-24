@@ -29,6 +29,7 @@ class HistoryManager(
 
     private var normalizedCache: List<NormalizedEntry> = emptyList()
     private var debounceJob: Job? = null
+    private var autocompleteGeneration: Long = 0L
 
     fun refresh() {
         history = repository.getHistory().toImmutableList()
@@ -48,6 +49,8 @@ class HistoryManager(
 
     fun updateSuggestions(query: String) {
         val normalizedQuery = query.trim().lowercase()
+        autocompleteGeneration++
+        val requestGeneration = autocompleteGeneration
         if (normalizedQuery.length < 2) {
             debounceJob?.cancel()
             autocompleteState = AutocompleteState()
@@ -57,7 +60,13 @@ class HistoryManager(
         debounceJob?.cancel()
         debounceJob = scope.launch {
             delay(DEBOUNCE_MS)
+            if (requestGeneration != autocompleteGeneration) {
+                return@launch
+            }
             val results = filterSuggestions(normalizedQuery)
+            if (requestGeneration != autocompleteGeneration) {
+                return@launch
+            }
             autocompleteState = AutocompleteState(
                 suggestions = results.toImmutableList(),
                 showSuggestions = results.isNotEmpty()
@@ -127,10 +136,14 @@ class HistoryManager(
     }
 
     fun dismissSuggestions() {
+        autocompleteGeneration++
+        debounceJob?.cancel()
         autocompleteState = autocompleteState.copy(showSuggestions = false)
     }
 
     fun clearAutocomplete() {
+        autocompleteGeneration++
+        debounceJob?.cancel()
         autocompleteState = AutocompleteState()
     }
 

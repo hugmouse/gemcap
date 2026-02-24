@@ -76,6 +76,7 @@ import mysh.dev.gemcap.ui.callbacks.BrowserCallbacksImpl
 import mysh.dev.gemcap.ui.components.ControlBar
 import mysh.dev.gemcap.ui.components.DialogOrchestrator
 import mysh.dev.gemcap.ui.components.TopTabStrip
+import mysh.dev.gemcap.ui.content.ContentActions
 import mysh.dev.gemcap.ui.content.ContentItem
 import mysh.dev.gemcap.ui.content.rememberCachedTextStyles
 import mysh.dev.gemcap.ui.model.ContentUiState
@@ -545,6 +546,18 @@ private fun GeminiContentList(
         }
     }
 
+    val contentActions = remember(callbacks) {
+        ContentActions(
+            onLinkClick = callbacks::onLinkClick,
+            onOpenImageInNewTab = callbacks::onOpenImageInNewTab,
+            onCopyLink = callbacks::onCopyLink,
+            onOpenInNewTab = callbacks::onOpenInNewTab,
+            onLoadEmbeddedMedia = callbacks::onLoadEmbeddedMedia,
+            onCollapseEmbeddedMedia = callbacks::onCollapseEmbeddedMedia,
+            onDownloadEmbeddedMedia = callbacks::onDownloadEmbeddedMedia
+        )
+    }
+
     // For some reason "PullToRefreshBox" is an experimental API, so we have to opt-in
     PullToRefreshBox(
         isRefreshing = isLoading,
@@ -607,10 +620,7 @@ private fun GeminiContentList(
                                     styles = cachedStyles,
                                     searchQuery = searchState.query,
                                     highlight = highlight,
-                                    onLinkClick = { callbacks.onLinkClick(it) },
-                                    onOpenImageInNewTab = { callbacks.onOpenImageInNewTab(it) },
-                                    onCopyLink = { callbacks.onCopyLink(it) },
-                                    onOpenInNewTab = { callbacks.onOpenInNewTab(it) }
+                                    actions = contentActions
                                 )
                             }
                         }

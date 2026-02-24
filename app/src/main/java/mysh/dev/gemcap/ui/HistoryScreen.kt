@@ -1,7 +1,6 @@
 package mysh.dev.gemcap.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,8 +36,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import mysh.dev.gemcap.R
 import kotlinx.collections.immutable.ImmutableList
 import mysh.dev.gemcap.domain.HistoryEntry
 import java.text.SimpleDateFormat
@@ -59,76 +61,89 @@ fun HistoryScreen(
 
     BackHandler(onBack = onDismiss)
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .windowInsetsPadding(
-                WindowInsets.safeDrawing.only(
-                    WindowInsetsSides.Top + WindowInsetsSides.Horizontal
-                )
-            )
+    Surface(
+        modifier = modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground
     ) {
-        // Header
-        Surface(
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 2.dp
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "History",
-                    style = MaterialTheme.typography.titleMedium
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Top + WindowInsetsSides.Horizontal
+                    )
                 )
-                Row {
-                    if (history.isNotEmpty()) {
-                        IconButton(onClick = { showClearConfirmation = true }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Clear history")
+        ) {
+            // Header
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 2.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.history_title),
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Row {
+                        if (history.isNotEmpty()) {
+                            IconButton(onClick = { showClearConfirmation = true }) {
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = stringResource(
+                                        R.string.clear_history_content_description
+                                    )
+                                )
+                            }
                         }
-                    }
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
+                        IconButton(onClick = onDismiss) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = stringResource(R.string.history_close_content_description)
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        // Content
-        if (history.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .windowInsetsPadding(
-                        WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)
+            // Content
+            if (history.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .windowInsetsPadding(
+                            WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)
+                        )
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = stringResource(R.string.history_empty_text),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    .padding(16.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "No history yet",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .windowInsetsPadding(
-                        WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)
-                    )
-            ) {
-                items(history, key = { "${it.url}_${it.visitedAt}" }) { entry ->
-                    HistoryItem(
-                        entry = entry,
-                        onClick = { onHistoryClick(entry) }
-                    )
-                    HorizontalDivider()
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .windowInsetsPadding(
+                            WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)
+                        )
+                ) {
+                    items(history, key = { "${it.url}_${it.visitedAt}" }) { entry ->
+                        HistoryItem(
+                            entry = entry,
+                            onClick = { onHistoryClick(entry) }
+                        )
+                        HorizontalDivider()
+                    }
                 }
             }
         }
@@ -137,8 +152,8 @@ fun HistoryScreen(
     if (showClearConfirmation) {
         AlertDialog(
             onDismissRequest = { showClearConfirmation = false },
-            title = { Text("Clear History") },
-            text = { Text("Are you sure you want to clear all browsing history?") },
+            title = { Text(stringResource(R.string.clear_history_label)) },
+            text = { Text(stringResource(R.string.clear_history_confirm)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -146,12 +161,12 @@ fun HistoryScreen(
                         showClearConfirmation = false
                     }
                 ) {
-                    Text("Clear")
+                    Text(stringResource(R.string.clear_button))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearConfirmation = false }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.cancel_button))
                 }
             }
         )
@@ -197,7 +212,14 @@ private fun HistoryItem(
     }
 }
 
+@Composable
 private fun formatRelativeTime(timestamp: Long): String {
+    val configuration = LocalConfiguration.current
+    val locale = configuration.locales[0] ?: Locale.getDefault()
+    val dayFormat = remember(locale) { SimpleDateFormat("EEE", locale) }
+    val monthDayFormat = remember(locale) { SimpleDateFormat("MMM d", locale) }
+    val monthDayYearFormat = remember(locale) { SimpleDateFormat("MMM d, yyyy", locale) }
+
     val now = System.currentTimeMillis()
     val diff = now - timestamp
 
@@ -206,13 +228,10 @@ private fun formatRelativeTime(timestamp: Long): String {
     val days = TimeUnit.MILLISECONDS.toDays(diff)
 
     return when {
-        minutes < 1 -> "Just now"
-        minutes < 60 -> "${minutes}m ago"
-        hours < 24 -> "${hours}h ago"
-        days < 7 -> {
-            val dayFormat = SimpleDateFormat("EEE", Locale.getDefault())
-            dayFormat.format(Date(timestamp))
-        }
+        minutes < 1 -> stringResource(R.string.history_time_just_now)
+        minutes < 60 -> stringResource(R.string.history_time_minutes_ago, minutes)
+        hours < 24 -> stringResource(R.string.history_time_hours_ago, hours)
+        days < 7 -> dayFormat.format(Date(timestamp))
 
         else -> {
             val calendar = Calendar.getInstance()
@@ -221,9 +240,9 @@ private fun formatRelativeTime(timestamp: Long): String {
             val timestampYear = calendar.get(Calendar.YEAR)
 
             if (timestampYear == currentYear) {
-                SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(timestamp))
+                monthDayFormat.format(Date(timestamp))
             } else {
-                SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(timestamp))
+                monthDayYearFormat.format(Date(timestamp))
             }
         }
     }

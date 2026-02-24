@@ -53,12 +53,31 @@ sealed class GeminiContent {
     data class Preformatted(override val id: Int, val text: String, val alt: String) :
         GeminiContent()
 
+    // For images loaded as full-page content (when URL is opened directly)
     data class Image(
         override val id: Int,
         val data: StableByteArray,
         val mimeType: String,
         val url: String
     ) : GeminiContent()
+
+    // For media embedded in gemini pages (in-place loading like Lagrange)
+    data class EmbeddedMedia(
+        override val id: Int,
+        val url: String,
+        val mimeType: String,
+        val linkText: String,
+        val state: EmbeddedMediaState,
+        val data: StableByteArray? = null,  // Populated when state is LOADED
+        val errorMessage: String? = null
+    ) : GeminiContent()
+
+    enum class EmbeddedMediaState {
+        COLLAPSED,    // Shows as a link with "Load" indicator
+        LOADING,      // Loading spinner
+        LOADED,       // Media displayed inline
+        ERROR         // Failed to load
+    }
 }
 
 data class InputPromptState(

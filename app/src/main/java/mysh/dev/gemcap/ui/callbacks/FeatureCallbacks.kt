@@ -6,6 +6,7 @@ import mysh.dev.gemcap.domain.Bookmark
 import mysh.dev.gemcap.domain.ClientCertificate
 import mysh.dev.gemcap.domain.HistoryEntry
 import mysh.dev.gemcap.domain.IdentityUsage
+import mysh.dev.gemcap.domain.StableByteArray
 import mysh.dev.gemcap.network.IdentityParams
 
 interface NavigationCallbacks {
@@ -106,6 +107,9 @@ interface AutocompleteCallbacks {
 
 interface LinkContextCallbacks {
     fun onCopyLink(url: String)
+    fun onLoadEmbeddedMedia(itemId: Int)
+    fun onCollapseEmbeddedMedia(itemId: Int)
+    fun onDownloadEmbeddedMedia(url: String, data: StableByteArray, mimeType: String)
 }
 
 interface BrowserCallbacks :

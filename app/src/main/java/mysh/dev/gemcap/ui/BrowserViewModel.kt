@@ -17,9 +17,12 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import mysh.dev.gemcap.data.BrowserRepository
 import mysh.dev.gemcap.data.ClientCertRepository
@@ -47,6 +50,7 @@ import mysh.dev.gemcap.network.IdentityParams
 import mysh.dev.gemcap.ui.managers.BookmarkManager
 import mysh.dev.gemcap.ui.managers.CertificateManager
 import mysh.dev.gemcap.ui.managers.DialogManager
+import mysh.dev.gemcap.ui.managers.EmbeddedMediaCache
 import mysh.dev.gemcap.ui.managers.HistoryManager
 import mysh.dev.gemcap.ui.managers.SearchManager
 import mysh.dev.gemcap.ui.managers.SettingsManager
@@ -59,13 +63,19 @@ import mysh.dev.gemcap.ui.model.PanelState
 import mysh.dev.gemcap.ui.model.SearchState
 import mysh.dev.gemcap.ui.model.SettingsState
 import mysh.dev.gemcap.ui.model.TabState
+import mysh.dev.gemcap.R
 import mysh.dev.gemcap.util.DownloadUtils
 import java.net.URI
+import java.net.URISyntaxException
 import java.net.URLEncoder
 
 // Don't you love when one view model literally controls everything?
 // TODO: try to refactor it
 class BrowserViewModel(application: Application) : AndroidViewModel(application) {
+    companion object {
+        private const val EMBEDDED_MEDIA_CACHE_MAX_BYTES = 50 * 1024 * 1024
+        private const val EMBEDDED_MEDIA_CACHE_TTL_MILLIS = 30L * 60L * 1000L
+    }
 
     private val client = GeminiClient(application)
     private val repository = BrowserRepository(application)
@@ -74,9 +84,14 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val certGenerator = CertificateGenerator(certRepository.getKeyStore(), certRepository)
     private val backoffManager = BackoffManager()
     private val clipboardManager = application.getSystemService(ClipboardManager::class.java)
+    private val embeddedMediaCache = EmbeddedMediaCache(
+        maxBytes = EMBEDDED_MEDIA_CACHE_MAX_BYTES,
+        ttlMillis = EMBEDDED_MEDIA_CACHE_TTL_MILLIS
+    )
 
     // Track loading jobs per tab for cancellation
     private val loadingJobs = mutableMapOf<String, Job>()
+    private val embeddedMediaLoadingJobs = mutableMapOf<String, Job>()
 
     // Panel state (shared across managers)
     var panelState by mutableStateOf(PanelState())
@@ -187,6 +202,16 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         data class SlowDown(val meta: String, val url: String) : FetchResult()
         data class Error(val error: GeminiError) : FetchResult()
     }
+    private sealed class EmbeddedMediaFetchResult {
+        data class Success(val response: GeminiResponse, val finalUrl: String) :
+            EmbeddedMediaFetchResult()
+        data class Error(val message: String) : EmbeddedMediaFetchResult()
+    }
+
+    private sealed class RedirectLoopResult<out T> {
+        data class Complete<T>(val value: T) : RedirectLoopResult<T>()
+        data class Redirect(val statusCode: Int, val targetUrl: String) : RedirectLoopResult<Nothing>()
+    }
 
     init {
         tabManager.initialize()
@@ -211,6 +236,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun closeTab(tabId: String) {
         loadingJobs[tabId]?.cancel()
         loadingJobs.remove(tabId)
+        cancelEmbeddedMediaJobsForTab(tabId)
         tabManager.closeTab(tabId)
     }
 
@@ -319,151 +345,180 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         maxRedirects: Int = 5,
         certAlias: String? = null
     ): FetchResult {
-        var currentUrl = initialUrl
-        var redirectCount = 0
-
-        while (redirectCount < maxRedirects) {
-            when (val fetchResult = client.fetch(currentUrl, certAlias)) {
-                is GeminiFetchResult.Error -> {
-                    return FetchResult.Error(
-                        GeminiError(
-                            statusCode = 0,
-                            message = fetchResult.exception.message ?: "Connection error",
-                            isTemporary = true,
-                            canRetry = true
-                        )
-                    )
-                }
-
-                is GeminiFetchResult.TofuWarning -> {
-                    return FetchResult.TofuWarning(
-                        TofuWarningState(
-                            host = fetchResult.host,
-                            port = fetchResult.port,
-                            oldFingerprint = fetchResult.oldFingerprint,
-                            newFingerprint = fetchResult.newFingerprint,
-                            newExpiry = fetchResult.newExpiry,
-                            isCATrusted = fetchResult.isCATrusted,
-                            pendingUrl = fetchResult.pendingUrl
-                        )
-                    )
-                }
-
-                is GeminiFetchResult.TofuDomainMismatch -> {
-                    return FetchResult.TofuDomainMismatch(
-                        host = fetchResult.host,
-                        certDomains = fetchResult.certDomains,
-                        pendingUrl = fetchResult.pendingUrl
-                    )
-                }
-
-                is GeminiFetchResult.TofuExpired -> {
-                    return FetchResult.TofuExpired(
-                        host = fetchResult.host,
-                        expiredAt = fetchResult.expiredAt,
-                        pendingUrl = fetchResult.pendingUrl
-                    )
-                }
-
-                is GeminiFetchResult.TofuNotYetValid -> {
-                    return FetchResult.TofuNotYetValid(
-                        host = fetchResult.host,
-                        notBefore = fetchResult.notBefore,
-                        pendingUrl = fetchResult.pendingUrl
-                    )
-                }
-
-                is GeminiFetchResult.CertificateRequired -> {
-                    return FetchResult.CertificateRequired(
-                        statusCode = fetchResult.statusCode,
-                        meta = fetchResult.meta,
-                        url = fetchResult.url
-                    )
-                }
-
-                is GeminiFetchResult.Success -> {
-                    val response = fetchResult.response
-                    when (response.status) {
-                        in 10..19 -> {
-                            return FetchResult.InputRequired(
-                                promptText = response.meta,
-                                targetUrl = currentUrl,
-                                isSensitive = response.status == 11
+        return followRedirects(
+            initialUrl = initialUrl,
+            certAlias = certAlias,
+            maxRedirects = maxRedirects,
+            mapResult = { fetchResult, currentUrl ->
+                when (fetchResult) {
+                    is GeminiFetchResult.Error -> {
+                        RedirectLoopResult.Complete(
+                            FetchResult.Error(
+                                GeminiError(
+                                    statusCode = 0,
+                                    message = fetchResult.exception.message ?: "Connection error",
+                                    isTemporary = true,
+                                    canRetry = true
+                                )
                             )
-                        }
+                        )
+                    }
 
-                        in 30..39 -> {
-                            val targetUrl = response.meta
-                            if (targetUrl.isBlank()) {
-                                return FetchResult.Error(
-                                    GeminiError(
-                                        statusCode = response.status,
-                                        message = "Empty redirect target",
-                                        isTemporary = true,
-                                        canRetry = false
+                    is GeminiFetchResult.TofuWarning -> {
+                        RedirectLoopResult.Complete(
+                            FetchResult.TofuWarning(
+                                TofuWarningState(
+                                    host = fetchResult.host,
+                                    port = fetchResult.port,
+                                    oldFingerprint = fetchResult.oldFingerprint,
+                                    newFingerprint = fetchResult.newFingerprint,
+                                    newExpiry = fetchResult.newExpiry,
+                                    isCATrusted = fetchResult.isCATrusted,
+                                    pendingUrl = fetchResult.pendingUrl
+                                )
+                            )
+                        )
+                    }
+
+                    is GeminiFetchResult.TofuDomainMismatch -> {
+                        RedirectLoopResult.Complete(
+                            FetchResult.TofuDomainMismatch(
+                                host = fetchResult.host,
+                                certDomains = fetchResult.certDomains,
+                                pendingUrl = fetchResult.pendingUrl
+                            )
+                        )
+                    }
+
+                    is GeminiFetchResult.TofuExpired -> {
+                        RedirectLoopResult.Complete(
+                            FetchResult.TofuExpired(
+                                host = fetchResult.host,
+                                expiredAt = fetchResult.expiredAt,
+                                pendingUrl = fetchResult.pendingUrl
+                            )
+                        )
+                    }
+
+                    is GeminiFetchResult.TofuNotYetValid -> {
+                        RedirectLoopResult.Complete(
+                            FetchResult.TofuNotYetValid(
+                                host = fetchResult.host,
+                                notBefore = fetchResult.notBefore,
+                                pendingUrl = fetchResult.pendingUrl
+                            )
+                        )
+                    }
+
+                    is GeminiFetchResult.CertificateRequired -> {
+                        RedirectLoopResult.Complete(
+                            FetchResult.CertificateRequired(
+                                statusCode = fetchResult.statusCode,
+                                meta = fetchResult.meta,
+                                url = fetchResult.url
+                            )
+                        )
+                    }
+
+                    is GeminiFetchResult.Success -> {
+                        val response = fetchResult.response
+                        when (response.status) {
+                            in 10..19 -> {
+                                RedirectLoopResult.Complete(
+                                    FetchResult.InputRequired(
+                                        promptText = response.meta,
+                                        targetUrl = currentUrl,
+                                        isSensitive = response.status == 11
                                     )
                                 )
                             }
-                            currentUrl = URI(currentUrl).resolve(targetUrl).toString()
-                            redirectCount++
-                        }
 
-                        44 -> {
-                            return FetchResult.SlowDown(meta = response.meta, url = currentUrl)
-                        }
-
-                        in 40..49 -> {
-                            return FetchResult.Error(
-                                GeminiError(
+                            in 30..39 -> {
+                                RedirectLoopResult.Redirect(
                                     statusCode = response.status,
-                                    message = response.meta,
-                                    isTemporary = true,
-                                    canRetry = true
+                                    targetUrl = response.meta
                                 )
-                            )
-                        }
+                            }
 
-                        in 50..59 -> {
-                            return FetchResult.Error(
-                                GeminiError(
-                                    statusCode = response.status,
-                                    message = response.meta,
-                                    isTemporary = false,
-                                    canRetry = false
+                            44 -> {
+                                RedirectLoopResult.Complete(
+                                    FetchResult.SlowDown(meta = response.meta, url = currentUrl)
                                 )
-                            )
-                        }
+                            }
 
-                        in 20..29 -> {
-                            dialogManager.clearBackoff(currentUrl)
-                            return FetchResult.Success(
-                                response,
-                                currentUrl,
-                                fetchResult.serverCertInfo
-                            )
-                        }
-
-                        else -> {
-                            return FetchResult.Error(
-                                GeminiError(
-                                    statusCode = response.status,
-                                    message = response.meta.ifBlank { "Unknown status code" },
-                                    isTemporary = true,
-                                    canRetry = true
+                            in 40..49 -> {
+                                RedirectLoopResult.Complete(
+                                    FetchResult.Error(
+                                        GeminiError(
+                                            statusCode = response.status,
+                                            message = response.meta,
+                                            isTemporary = true,
+                                            canRetry = true
+                                        )
+                                    )
                                 )
-                            )
+                            }
+
+                            in 50..59 -> {
+                                RedirectLoopResult.Complete(
+                                    FetchResult.Error(
+                                        GeminiError(
+                                            statusCode = response.status,
+                                            message = response.meta,
+                                            isTemporary = false,
+                                            canRetry = false
+                                        )
+                                    )
+                                )
+                            }
+
+                            in 20..29 -> {
+                                dialogManager.clearBackoff(currentUrl)
+                                RedirectLoopResult.Complete(
+                                    FetchResult.Success(
+                                        response,
+                                        currentUrl,
+                                        fetchResult.serverCertInfo
+                                    )
+                                )
+                            }
+
+                            else -> {
+                                RedirectLoopResult.Complete(
+                                    FetchResult.Error(
+                                        GeminiError(
+                                            statusCode = response.status,
+                                            message = response.meta.ifBlank { "Unknown status code" },
+                                            isTemporary = true,
+                                            canRetry = true
+                                        )
+                                    )
+                                )
+                            }
                         }
                     }
                 }
+            },
+            onInvalidRedirect = { statusCode, message ->
+                FetchResult.Error(
+                    GeminiError(
+                        statusCode = statusCode,
+                        message = message,
+                        isTemporary = true,
+                        canRetry = false
+                    )
+                )
+            },
+            onTooManyRedirects = { redirectLimit ->
+                FetchResult.Error(
+                    GeminiError(
+                        statusCode = 0,
+                        message = "Too many redirects (max $redirectLimit)",
+                        isTemporary = true,
+                        canRetry = false
+                    )
+                )
             }
-        }
-        return FetchResult.Error(
-            GeminiError(
-                statusCode = 0,
-                message = "Too many redirects (max $maxRedirects)",
-                isTemporary = true,
-                canRetry = false
-            )
         )
     }
 
@@ -615,6 +670,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
         // Cancel any existing loading job for this tab
         loadingJobs[tabId]?.cancel()
+        cancelEmbeddedMediaJobsForTab(tabId)
 
         val job = viewModelScope.launch {
             var targetUrl = currentTab.url.trim()
@@ -765,8 +821,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun onLinkClick(linkUrl: String) {
         try {
             val currentTab = activeTab ?: return
-            val currentUri = URI(currentTab.url)
-            val resolvedUri = currentUri.resolve(linkUrl)
+            val resolvedUrl = resolveUrl(linkUrl, currentTab.url)
+            val resolvedUri = URI(resolvedUrl)
             val requiresInput = linkUrl.endsWith("?") || linkUrl.contains("%s")
 
             val scheme = resolvedUri.scheme?.lowercase()
@@ -779,13 +835,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             if (requiresInput && isGemini) {
                 dialogManager.showInputPrompt(
                     promptText = "Input required",
-                    targetUrl = resolvedUri.toString(),
+                    targetUrl = resolvedUrl,
                     isSensitive = false
                 )
                 return
             }
 
-            currentTab.updateUrl(resolvedUri.toString())
+            currentTab.updateUrl(resolvedUrl)
             loadPage(addToHistory = true)
         } catch (e: Exception) {
             activeTab?.error = GeminiError(
@@ -932,7 +988,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     // Link context
     fun openLinkInNewTab(url: String) {
-        tabManager.openInNewTab(url)
+        tabManager.openInNewTab(resolveUrl(url))
         loadPage(addToHistory = true)
     }
 
@@ -946,4 +1002,422 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     // Backoff
     fun cancelBackoff() = dialogManager.cancelBackoff()
+
+    // Embedded media loading (Lagrange-style!)
+    fun loadEmbeddedMedia(itemId: Int) {
+        val tab = activeTab ?: return
+        val tabId = tab.id
+        val baseDisplayedUrl = tab.displayedUrl.ifBlank { tab.url }
+        val media = tab.content.firstOrNull {
+            it is GeminiContent.EmbeddedMedia && it.id == itemId
+        } as? GeminiContent.EmbeddedMedia ?: return
+        val loadingJobKey = embeddedMediaJobKey(tabId, itemId)
+        cancelEmbeddedMediaLoadingJob(loadingJobKey)
+        val resolvedUrl = resolveUrl(media.url, baseDisplayedUrl)
+        val certAlias = try {
+            val resolvedUri = URI(resolvedUrl)
+            certificateManager.findBestMatch(resolvedUri.host ?: "", resolvedUri.path ?: "/")
+        } catch (_: URISyntaxException) {
+            null
+        } catch (_: IllegalArgumentException) {
+            null
+        }
+        val cacheKey = buildEmbeddedMediaCacheKey(resolvedUrl, certAlias)
+        embeddedMediaCache.get(cacheKey)?.let { cached ->
+            updateEmbeddedMedia(
+                tab = tab,
+                itemId = itemId,
+                expectedDisplayedUrl = baseDisplayedUrl,
+                expectedStates = setOf(
+                    GeminiContent.EmbeddedMediaState.COLLAPSED,
+                    GeminiContent.EmbeddedMediaState.ERROR,
+                    GeminiContent.EmbeddedMediaState.LOADING
+                )
+            ) { item ->
+                item.copy(
+                    state = GeminiContent.EmbeddedMediaState.LOADED,
+                    mimeType = cached.mimeType,
+                    data = cached.data,
+                    errorMessage = null
+                )
+            }
+            return
+        }
+ 
+        val job = viewModelScope.launch {
+            try {
+                val markedLoading = updateEmbeddedMedia(
+                    tab = tab,
+                    itemId = itemId,
+                    expectedDisplayedUrl = baseDisplayedUrl,
+                    expectedStates = setOf(
+                        GeminiContent.EmbeddedMediaState.COLLAPSED,
+                        GeminiContent.EmbeddedMediaState.ERROR,
+                        GeminiContent.EmbeddedMediaState.LOADING
+                    )
+                ) { item ->
+                    item.copy(
+                        state = GeminiContent.EmbeddedMediaState.LOADING,
+                        errorMessage = null
+                    )
+                }
+                if (!markedLoading) {
+                    return@launch
+                }
+                when (val result = fetchEmbeddedMediaWithRedirects(resolvedUrl, certAlias)) {
+                    is EmbeddedMediaFetchResult.Success -> {
+                        val response = result.response
+                        val mimeType = response.meta.lowercase().split(";").first().trim()
+                        val data = response.body ?: ByteArray(0)
+                        val resolvedMimeType = mimeType.ifBlank { media.mimeType }
+                        val stableData = StableByteArray(data)
+                        embeddedMediaCache.put(cacheKey, stableData, resolvedMimeType)
+                        updateEmbeddedMedia(
+                            tab = tab,
+                            itemId = itemId,
+                            expectedDisplayedUrl = baseDisplayedUrl,
+                            expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
+                        ) { item ->
+                            item.copy(
+                                state = GeminiContent.EmbeddedMediaState.LOADED,
+                                mimeType = resolvedMimeType,
+                                data = stableData,
+                                errorMessage = null
+                            )
+                        }
+                    }
+
+                    is EmbeddedMediaFetchResult.Error -> {
+                        updateEmbeddedMedia(
+                            tab = tab,
+                            itemId = itemId,
+                            expectedDisplayedUrl = baseDisplayedUrl,
+                            expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
+                        ) { item ->
+                            item.copy(
+                                state = GeminiContent.EmbeddedMediaState.ERROR,
+                                errorMessage = result.message
+                            )
+                        }
+                    }
+                }
+            } finally {
+                if (embeddedMediaLoadingJobs[loadingJobKey] == coroutineContext[Job]) {
+                    embeddedMediaLoadingJobs.remove(loadingJobKey)
+                }
+            }
+        }
+        embeddedMediaLoadingJobs[loadingJobKey] = job
+    }
+
+    fun collapseEmbeddedMedia(itemId: Int) {
+        val tab = activeTab ?: return
+        cancelEmbeddedMediaLoadingJob(tab.id, itemId)
+        updateEmbeddedMedia(tab, itemId) { item ->
+            item.copy(
+                state = GeminiContent.EmbeddedMediaState.COLLAPSED,
+                data = null,
+                errorMessage = null
+            )
+        }
+    }
+
+    fun downloadEmbeddedMedia(url: String, data: StableByteArray, mimeType: String) {
+        val fileName = DownloadUtils.suggestFileName(url, mimeType)
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = DownloadUtils.saveToDownloads(
+                context = getApplication(),
+                data = data.bytes,
+                fileName = fileName,
+                mimeType = mimeType
+            )
+            withContext(Dispatchers.Main) {
+                snackbarHostState.showSnackbar(
+                    result.fold(
+                        onSuccess = { "Saved to $it" },
+                        onFailure = { "Download failed: ${it.message}" }
+                    )
+                )
+            }
+        }
+    }
+
+    private fun resolveUrl(
+        url: String,
+        baseUrl: String? = null
+    ): String {
+        val effectiveBaseUrl = baseUrl ?: run {
+            val current = activeTab
+            current?.displayedUrl?.ifBlank { current.url } ?: url
+        }
+        return try {
+            if (effectiveBaseUrl.isBlank()) {
+                return url
+            }
+            URI(effectiveBaseUrl).resolve(url).toString()
+        } catch (_: Exception) {
+            url
+        }
+    }
+
+    private fun embeddedMediaJobKey(tabId: String, itemId: Int): String {
+        return "$tabId:$itemId"
+    }
+
+    private fun cancelEmbeddedMediaLoadingJob(tabId: String, itemId: Int) {
+        cancelEmbeddedMediaLoadingJob(embeddedMediaJobKey(tabId, itemId))
+    }
+
+    private fun cancelEmbeddedMediaLoadingJob(jobKey: String) {
+        embeddedMediaLoadingJobs.remove(jobKey)?.cancel()
+    }
+
+    private fun cancelEmbeddedMediaJobsForTab(tabId: String) {
+        val tabPrefix = "$tabId:"
+        val iterator = embeddedMediaLoadingJobs.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            if (entry.key.startsWith(tabPrefix)) {
+                entry.value.cancel()
+                iterator.remove()
+            }
+        }
+    }
+
+    private fun buildEmbeddedMediaCacheKey(resolvedUrl: String, certAlias: String?): String {
+        return if (certAlias.isNullOrBlank()) {
+            resolvedUrl
+        } else {
+            "$resolvedUrl|$certAlias"
+        }
+    }
+
+    private fun updateEmbeddedMedia(
+        tab: TabState,
+        itemId: Int,
+        expectedDisplayedUrl: String? = null,
+        expectedStates: Set<GeminiContent.EmbeddedMediaState>? = null,
+        transform: (GeminiContent.EmbeddedMedia) -> GeminiContent.EmbeddedMedia
+    ): Boolean {
+        if (tabManager.tabs.none { it.id == tab.id }) {
+            return false
+        }
+        val effectiveDisplayedUrl = tab.displayedUrl.ifBlank { tab.url }
+        if (expectedDisplayedUrl != null && effectiveDisplayedUrl != expectedDisplayedUrl) {
+            return false
+        }
+        var replaced = false
+        tab.content = tab.content.map { item ->
+            if (!replaced && item is GeminiContent.EmbeddedMedia && item.id == itemId) {
+                if (expectedStates != null && item.state !in expectedStates) {
+                    item
+                } else {
+                    replaced = true
+                    transform(item)
+                }
+            } else {
+                item
+            }
+        }.toImmutableList()
+        return replaced
+    }
+ 
+    private suspend fun fetchEmbeddedMediaWithRedirects(
+        initialUrl: String,
+        certAlias: String?,
+        maxRedirects: Int = 5
+    ): EmbeddedMediaFetchResult {
+        val app = getApplication<Application>()
+        return followRedirects(
+            initialUrl = initialUrl,
+            certAlias = certAlias,
+            maxRedirects = maxRedirects,
+            mapResult = { result, currentUrl ->
+                when (result) {
+                    is GeminiFetchResult.Success -> {
+                        val response = result.response
+                        when (response.status) {
+                            in 20..29 -> {
+                                RedirectLoopResult.Complete(
+                                    EmbeddedMediaFetchResult.Success(response, currentUrl)
+                                )
+                            }
+
+                            in 30..39 -> {
+                                RedirectLoopResult.Redirect(
+                                    statusCode = response.status,
+                                    targetUrl = response.meta
+                                )
+                            }
+
+                            in 10..19 -> {
+                                val prompt = response.meta.ifBlank {
+                                    app.getString(R.string.embedded_media_error_no_prompt)
+                                }
+                                RedirectLoopResult.Complete(
+                                    EmbeddedMediaFetchResult.Error(
+                                        app.getString(R.string.embedded_media_error_input_required, prompt)
+                                    )
+                                )
+                            }
+
+                            44 -> {
+                                val meta = response.meta.ifBlank {
+                                    app.getString(R.string.embedded_media_error_no_retry_hint)
+                                }
+                                RedirectLoopResult.Complete(
+                                    EmbeddedMediaFetchResult.Error(
+                                        app.getString(R.string.embedded_media_error_slow_down, meta)
+                                    )
+                                )
+                            }
+
+                            in 40..49 -> {
+                                RedirectLoopResult.Complete(
+                                    EmbeddedMediaFetchResult.Error(
+                                        app.getString(
+                                            R.string.embedded_media_error_temporary_failure,
+                                            response.status,
+                                            response.meta
+                                        )
+                                    )
+                                )
+                            }
+
+                            in 50..59 -> {
+                                RedirectLoopResult.Complete(
+                                    EmbeddedMediaFetchResult.Error(
+                                        app.getString(
+                                            R.string.embedded_media_error_permanent_failure,
+                                            response.status,
+                                            response.meta
+                                        )
+                                    )
+                                )
+                            }
+
+                            else -> {
+                                val meta = response.meta.ifBlank {
+                                    app.getString(R.string.embedded_media_error_unknown_status)
+                                }
+                                RedirectLoopResult.Complete(
+                                    EmbeddedMediaFetchResult.Error(
+                                        app.getString(
+                                            R.string.embedded_media_error_unexpected_status,
+                                            response.status,
+                                            meta
+                                        )
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    else -> {
+                        RedirectLoopResult.Complete(
+                            EmbeddedMediaFetchResult.Error(formatEmbeddedMediaFetchError(result))
+                        )
+                    }
+                }
+            },
+            onInvalidRedirect = { _, message ->
+                EmbeddedMediaFetchResult.Error(message)
+            },
+            onTooManyRedirects = { redirectLimit ->
+                EmbeddedMediaFetchResult.Error(
+                    app.getString(R.string.embedded_media_error_too_many_redirects, redirectLimit)
+                )
+            }
+        )
+    }
+
+    private suspend fun <T> followRedirects(
+        initialUrl: String,
+        certAlias: String?,
+        maxRedirects: Int,
+        mapResult: (result: GeminiFetchResult, currentUrl: String) -> RedirectLoopResult<T>,
+        onInvalidRedirect: (statusCode: Int, message: String) -> T,
+        onTooManyRedirects: (redirectLimit: Int) -> T
+    ): T {
+        var currentUrl = initialUrl
+        var redirectCount = 0
+
+        while (redirectCount < maxRedirects) {
+            val fetchResult = client.fetch(currentUrl, certAlias)
+            currentCoroutineContext().ensureActive()
+
+            when (val mapped = mapResult(fetchResult, currentUrl)) {
+                is RedirectLoopResult.Complete -> return mapped.value
+                is RedirectLoopResult.Redirect -> {
+                    val targetUrl = mapped.targetUrl
+                    if (targetUrl.isBlank()) {
+                        return onInvalidRedirect(mapped.statusCode, "Empty redirect target")
+                    }
+                    currentUrl = try {
+                        URI(currentUrl).resolve(targetUrl).toString()
+                    } catch (e: URISyntaxException) {
+                        return onInvalidRedirect(
+                            mapped.statusCode,
+                            "Invalid redirect target: ${e.message ?: targetUrl}"
+                        )
+                    } catch (e: IllegalArgumentException) {
+                        return onInvalidRedirect(
+                            mapped.statusCode,
+                            "Invalid redirect target: ${e.message ?: targetUrl}"
+                        )
+                    }
+                    redirectCount++
+                }
+            }
+        }
+
+        return onTooManyRedirects(maxRedirects)
+    }
+
+    private fun formatEmbeddedMediaFetchError(result: GeminiFetchResult): String {
+        val app = getApplication<Application>()
+        return when (result) {
+            is GeminiFetchResult.TofuDomainMismatch -> {
+                val domains = result.certDomains.joinToString(", ")
+                    .ifBlank { app.getString(R.string.embedded_media_error_tofu_domain_mismatch_unknown) }
+                app.getString(R.string.embedded_media_error_tofu_domain_mismatch, result.host, domains)
+            }
+
+            is GeminiFetchResult.TofuWarning ->
+                app.getString(R.string.embedded_media_error_tofu_warning, result.host)
+
+            is GeminiFetchResult.TofuExpired -> {
+                val expiredDate = java.text.SimpleDateFormat(
+                    "yyyy-MM-dd HH:mm",
+                    java.util.Locale.getDefault()
+                ).format(java.util.Date(result.expiredAt))
+                app.getString(R.string.embedded_media_error_tofu_expired, expiredDate)
+            }
+
+            is GeminiFetchResult.TofuNotYetValid -> {
+                val validFrom = java.text.SimpleDateFormat(
+                    "yyyy-MM-dd HH:mm",
+                    java.util.Locale.getDefault()
+                ).format(java.util.Date(result.notBefore))
+                app.getString(R.string.embedded_media_error_tofu_not_yet_valid, validFrom)
+            }
+
+            is GeminiFetchResult.CertificateRequired -> {
+                if (result.meta.isNotBlank()) {
+                    app.getString(
+                        R.string.embedded_media_error_client_cert_required_with_meta,
+                        result.statusCode,
+                        result.meta
+                    )
+                } else {
+                    app.getString(R.string.embedded_media_error_client_cert_required, result.statusCode)
+                }
+            }
+
+            is GeminiFetchResult.Error ->
+                result.exception.message ?: app.getString(R.string.embedded_media_error_connection)
+
+            is GeminiFetchResult.Success -> app.getString(R.string.embedded_media_error_failed_to_load_media)
+        }
+    }
 }

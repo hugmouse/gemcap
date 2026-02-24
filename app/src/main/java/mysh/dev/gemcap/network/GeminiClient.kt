@@ -2,8 +2,10 @@ package mysh.dev.gemcap.network
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
@@ -12,19 +14,26 @@ import mysh.dev.gemcap.domain.GeminiResponse
 import mysh.dev.gemcap.domain.ServerCertInfo
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.asn1.x500.style.BCStyle
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.net.InetSocketAddress
+import java.net.Socket
 import java.net.URI
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import javax.net.ssl.KeyManager
-import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLException
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.TrustManager
 
 private const val TAG = "GeminiClient"
 private const val MAX_URI_BYTES = 1024
+private const val MAX_SSL_RETRIES = 3
+private const val CONNECT_TIMEOUT_MS = 10_000
+private const val READ_TIMEOUT_MS = 30_000
+private const val MAX_HEADER_BYTES = 1024
+private const val DEFAULT_MAX_RESPONSE_BODY_BYTES = 16 * 1024 * 1024
 
 class UriTooLongException(length: Int) :
     Exception("URI exceeds maximum length of $MAX_URI_BYTES bytes (was $length)")
@@ -74,15 +83,20 @@ sealed class GeminiFetchResult {
     data class Error(val exception: Exception) : GeminiFetchResult()
 }
 
-class GeminiClient(context: Context) {
+class GeminiClient(
+    context: Context,
+    private val maxResponseBodyBytes: Int = DEFAULT_MAX_RESPONSE_BODY_BYTES
+) {
 
     private val tofuTrustManager = TofuTrustManager(context)
     private val keyStore = ClientCertKeyStore()
-    private val keyManager = SelectiveKeyManager(keyStore)
 
-    private val baseSslContext: SSLContext = createSslContext()
+    init {
+        require(maxResponseBodyBytes > 0) { "maxResponseBodyBytes must be > 0" }
+    }
 
-    private fun createSslContext(): SSLContext {
+    private fun createSslContext(certAlias: String?): SSLContext {
+        val keyManager = SelectiveKeyManager(keyStore, certAlias)
         return SSLContext.getInstance("TLS").apply {
             init(
                 arrayOf<KeyManager>(keyManager),
@@ -93,37 +107,7 @@ class GeminiClient(context: Context) {
     }
 
     private fun getSocketFactory(certAlias: String?): javax.net.ssl.SSLSocketFactory {
-        // Use a fresh SSLContext when a client cert is requested to avoid
-        // TLS session resumption skipping client-certificate selection.
-        return if (certAlias == null) {
-            baseSslContext.socketFactory
-        } else {
-            createSslContext().socketFactory
-        }
-    }
-
-    private fun applySni(sslSocket: SSLSocket, host: String) {
-        if (host.isBlank()) return
-        val isIpv4 = host.matches(Regex("^\\d{1,3}(\\.\\d{1,3}){3}$"))
-        val isIpv6 = host.contains(":")
-        if (isIpv4 || isIpv6) return
-        try {
-            val params = sslSocket.sslParameters
-            params.serverNames = listOf(SNIHostName(host))
-            sslSocket.sslParameters = params
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to set SNI for host: $host", e)
-        }
-    }
-
-    private fun applyAlpn(sslSocket: SSLSocket) {
-        try {
-            val params = sslSocket.sslParameters
-            params.applicationProtocols = arrayOf("gemini")
-            sslSocket.sslParameters = params
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to set ALPN for gemini", e)
-        }
+        return createSslContext(certAlias).socketFactory
     }
 
     /**
@@ -134,16 +118,41 @@ class GeminiClient(context: Context) {
      */
     suspend fun fetch(url: String, certAlias: String? = null): GeminiFetchResult =
         withContext(Dispatchers.IO) {
-            // Set up client certificate for this request
-            keyManager.setCurrentAlias(certAlias)
-
-            try {
-                fetchInternal(url, getSocketFactory(certAlias))
-            } finally {
-                keyManager.clearCurrentAlias()
-            }
+            fetchWithRetry(url, certAlias)
         }
 
+    /**
+     * Retries the fetch on transient SSL errors (BAD_DECRYPT / BAD_RECORD_MAC).
+     *
+     * Some Android TLS 1.3 implementations (BoringSSL/Conscrypt) can intermittently
+     * fail with DECRYPTION_FAILED_OR_BAD_RECORD_MAC when processing post-handshake
+     * messages (e.g. NewSessionTicket). A fresh connection usually succeeds.
+     *
+     * This is a stupid hack and should be removed if I ever understand the issue.
+     */
+    private suspend fun fetchWithRetry(url: String, certAlias: String?): GeminiFetchResult {
+        var lastError: GeminiFetchResult.Error? = null
+        for (attempt in 1..MAX_SSL_RETRIES) {
+            val result = fetchInternal(url, getSocketFactory(certAlias))
+            val sslException = (result as? GeminiFetchResult.Error)?.exception as? SSLException
+            if (sslException == null || !isTransientSslException(sslException)) {
+                return result
+            }
+            lastError = result
+            Log.w(
+                TAG,
+                "Transient SSL error on attempt $attempt/$MAX_SSL_RETRIES for $url: ${sslException.message}"
+            )
+            if (attempt < MAX_SSL_RETRIES) {
+                delay(100L * attempt)
+            }
+        }
+        return requireNotNull(lastError) {
+            "Transient SSL retry exhausted without capturing an error result"
+        }
+    }
+
+    @Suppress("TooGenericExceptionCaught")
     private suspend fun fetchInternal(
         url: String,
         socketFactory: javax.net.ssl.SSLSocketFactory
@@ -165,27 +174,42 @@ class GeminiClient(context: Context) {
             "Fetch start url=$url normalized=$normalizedUrl host=$host port=$port path=${uri.path} query=${uri.query}"
         )
 
-        val socket = socketFactory.createSocket() as SSLSocket
+        // First create a plain TCP socket and connect with timeout
+        val rawSocket = Socket()
+        fun closeRawSocket() {
+            runCatching {
+                if (!rawSocket.isClosed) {
+                    rawSocket.close()
+                }
+            }
+        }
 
         // Close socket when coroutine is cancelled - interrupts blocking I/O
         currentCoroutineContext().job.invokeOnCompletion { cause ->
             if (cause != null) {
-                runCatching { socket.close() }
+                closeRawSocket()
             }
         }
 
         try {
-            socket.use { sslSocket ->
-                sslSocket.connect(InetSocketAddress(host, port), 10000)
-                sslSocket.soTimeout = 30000  // 30 second read timeout
-                applySni(sslSocket, host)
-                applyAlpn(sslSocket)
+            Log.d(TAG, "Connecting to $host:$port...")
+            rawSocket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+
+            // Wrap with SSL using the hostname - this properly binds the hostname
+            // to the native SSL object for correct SNI, session management, and
+            // TLS record processing. Using createSocket(socket, host, port, autoClose)
+            // avoids BAD_DECRYPT errors that occur when hostname is only set via
+            // sslParameters after socket creation.
+            val sslSocket = socketFactory.createSocket(
+                rawSocket, host, port, true  // autoClose = true
+            ) as SSLSocket
+
+            sslSocket.use {
+                sslSocket.soTimeout = READ_TIMEOUT_MS
+
+                Log.d(TAG, "Starting TLS handshake for $host...")
                 sslSocket.startHandshake()
-                try {
-                    Log.d(TAG, "ALPN negotiated: ${sslSocket.applicationProtocol}")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to read ALPN protocol", e)
-                }
+                Log.d(TAG, "TLS handshake completed for $host")
                 try {
                     Log.d(
                         TAG,
@@ -296,14 +320,44 @@ class GeminiClient(context: Context) {
                 )
             }
         } catch (e: java.net.SocketException) {
+            closeRawSocket()
             // Check if socket was closed due to cancellation
             currentCoroutineContext().ensureActive()  // Throws CancellationException if cancelled
             Log.e(TAG, "Failed to fetch: $url", e)
             return GeminiFetchResult.Error(e)
+        } catch (e: SSLException) {
+            closeRawSocket()
+            Log.e(TAG, "SSL error fetching: $url", e)
+            return GeminiFetchResult.Error(e)
+        } catch (e: CancellationException) {
+            closeRawSocket()
+            throw e
         } catch (e: Exception) {
+            // SocketException, SSLException, and CancellationException are handled above.
+            // Keep this fallback so fetchWithRetry can surface unexpected runtime failures.
+            closeRawSocket()
             Log.e(TAG, "Failed to fetch: $url", e)
             return GeminiFetchResult.Error(e)
         }
+    }
+
+    private fun isTransientSslException(exception: SSLException): Boolean {
+        val message = buildString {
+            exception.message?.let { append(it) }
+            exception.cause?.message?.let { causeMessage ->
+                if (isNotEmpty()) {
+                    append(' ')
+                }
+                append(causeMessage)
+            }
+        }
+        if (message.isBlank()) {
+            return false
+        }
+        val upper = message.uppercase()
+        return upper.contains("BAD_RECORD_MAC") ||
+            upper.contains("BAD_DECRYPT") ||
+            upper.contains("DECRYPTION_FAILED")
     }
 
     fun bypassDomainCheck(host: String, port: Int = 1965) {
@@ -315,19 +369,31 @@ class GeminiClient(context: Context) {
     }
 
     private fun parseResponse(inputStream: InputStream): GeminiResponse {
-        val allBytes = inputStream.readBytes()
-
+        val headerBuffer = ByteArrayOutputStream()
+        var previous = -1
+        var current: Int
         var headerEndIndex = -1
-        for (i in 0 until allBytes.size - 1) {
-            if (allBytes[i] == '\r'.code.toByte() && allBytes[i + 1] == '\n'.code.toByte()) {
-                headerEndIndex = i
+
+        while (true) {
+            current = inputStream.read()
+            if (current == -1) {
                 break
             }
+            headerBuffer.write(current)
+            if (headerBuffer.size() > MAX_HEADER_BYTES) {
+                throw Exception("Invalid response: header exceeds $MAX_HEADER_BYTES bytes")
+            }
+            if (previous == '\r'.code && current == '\n'.code) {
+                headerEndIndex = headerBuffer.size() - 2
+                break
+            }
+            previous = current
         }
 
         if (headerEndIndex == -1) throw Exception("Invalid response: no header terminator found")
 
-        val headerLine = String(allBytes, 0, headerEndIndex, Charsets.UTF_8)
+        val headerBytes = headerBuffer.toByteArray()
+        val headerLine = String(headerBytes, 0, headerEndIndex, Charsets.UTF_8)
         val parts = headerLine.trim().split(Regex("\\s+"), 2)
         val statusString = parts.getOrNull(0) ?: throw Exception("Invalid status")
         val meta = parts.getOrNull(1) ?: ""
@@ -336,11 +402,31 @@ class GeminiClient(context: Context) {
 
         var body: ByteArray? = null
         if (status in 20..29) {
-            val bodyStart = headerEndIndex + 2
-            body = allBytes.copyOfRange(bodyStart, allBytes.size)
+            body = readResponseBodyWithLimit(inputStream)
         }
 
         return GeminiResponse(status, meta, body)
+    }
+
+    private fun readResponseBodyWithLimit(inputStream: InputStream): ByteArray {
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        val output = ByteArrayOutputStream()
+        var totalBytes = 0
+
+        while (true) {
+            val read = inputStream.read(buffer)
+            if (read == -1) {
+                break
+            }
+            totalBytes += read
+            if (totalBytes > maxResponseBodyBytes) {
+                throw Exception(
+                    "Response body exceeds max size of $maxResponseBodyBytes bytes"
+                )
+            }
+            output.write(buffer, 0, read)
+        }
+        return output.toByteArray()
     }
 
     private fun normalizeUrl(url: String): String {
