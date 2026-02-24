@@ -45,4 +45,13 @@
     <string name="embedded_media_failed_to_load">Failed to load %1$s</string>
     <string name="embedded_media_tap_to_retry">Tap to retry</string>
     <string name="embedded_media_unknown_size">unknown size</string>
+    <string name="embedded_media_error_tofu_domain_mismatch">Certificate domain mismatch for %1$s. Certificate is valid for: %2$s</string>
+    <string name="embedded_media_error_tofu_domain_mismatch_unknown">unknown domains</string>
+    <string name="embedded_media_error_tofu_warning">Certificate changed for %1$s. Open the page directly to review and accept it.</string>
+    <string name="embedded_media_error_tofu_expired">Server certificate expired on %1$s</string>
+    <string name="embedded_media_error_tofu_not_yet_valid">Server certificate is not yet valid (valid from %1$s)</string>
+    <string name="embedded_media_error_client_cert_required">Client certificate required (%1$d)</string>
+    <string name="embedded_media_error_client_cert_required_with_meta">Client certificate required (%1$d): %2$s</string>
+    <string name="embedded_media_error_connection">Connection error while loading media</string>
+    <string name="embedded_media_error_failed_to_load_media">Failed to load media</string>
 </resources>
