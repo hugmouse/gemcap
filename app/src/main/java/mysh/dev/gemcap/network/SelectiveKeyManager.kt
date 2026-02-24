@@ -84,14 +84,15 @@ class SelectiveKeyManager(
         issuers: Array<out Principal>?
     ): String? {
         val selectedAlias = selectedAliasOrNull() ?: return null
-        val leafCertificate = keyStore.getCertificateChain(selectedAlias)
-            ?.firstOrNull()
+        val certificateChain = keyStore.getCertificateChain(selectedAlias)
+            ?.takeIf { it.isNotEmpty() }
             ?: return null
+        val leafCertificate = certificateChain.first()
 
         if (!matchesAnyKeyType(leafCertificate, keyTypes)) {
             return null
         }
-        if (!matchesIssuers(leafCertificate, issuers)) {
+        if (!matchesIssuers(certificateChain, issuers)) {
             return null
         }
         return selectedAlias
@@ -109,14 +110,22 @@ class SelectiveKeyManager(
     }
 
     private fun matchesIssuers(
-        certificate: X509Certificate,
+        certificateChain: Array<X509Certificate>,
         issuers: Array<out Principal>?
     ): Boolean {
         if (issuers.isNullOrEmpty()) {
             return true
         }
-        val issuerPrincipal = certificate.issuerX500Principal
-        return issuers.any { it == issuerPrincipal || it.name == issuerPrincipal.name }
+        return certificateChain.any { certificate ->
+            val subjectPrincipal = certificate.subjectX500Principal
+            val issuerPrincipal = certificate.issuerX500Principal
+            issuers.any { acceptedIssuer ->
+                acceptedIssuer == subjectPrincipal ||
+                    acceptedIssuer.name == subjectPrincipal.name ||
+                    acceptedIssuer == issuerPrincipal ||
+                    acceptedIssuer.name == issuerPrincipal.name
+            }
+        }
     }
 
     private fun normalizeKeyType(keyType: String): String {
