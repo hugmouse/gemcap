@@ -63,6 +63,7 @@ import mysh.dev.gemcap.ui.model.PanelState
 import mysh.dev.gemcap.ui.model.SearchState
 import mysh.dev.gemcap.ui.model.SettingsState
 import mysh.dev.gemcap.ui.model.TabState
+import mysh.dev.gemcap.R
 import mysh.dev.gemcap.util.DownloadUtils
 import java.net.URI
 import java.net.URISyntaxException
@@ -1016,7 +1017,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val certAlias = try {
             val resolvedUri = URI(resolvedUrl)
             certificateManager.findBestMatch(resolvedUri.host ?: "", resolvedUri.path ?: "/")
-        } catch (_: Exception) {
+        } catch (_: URISyntaxException) {
+            null
+        } catch (_: IllegalArgumentException) {
             null
         }
         val cacheKey = buildEmbeddedMediaCacheKey(resolvedUrl, certAlias)
@@ -1347,21 +1350,23 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun formatEmbeddedMediaFetchError(result: GeminiFetchResult): String {
+        val app = getApplication<Application>()
         return when (result) {
             is GeminiFetchResult.TofuDomainMismatch -> {
-                val domains = result.certDomains.joinToString(", ").ifBlank { "unknown domains" }
-                "Certificate domain mismatch for ${result.host}. Certificate is valid for: $domains"
+                val domains = result.certDomains.joinToString(", ")
+                    .ifBlank { app.getString(R.string.embedded_media_error_tofu_domain_mismatch_unknown) }
+                app.getString(R.string.embedded_media_error_tofu_domain_mismatch, result.host, domains)
             }
 
             is GeminiFetchResult.TofuWarning ->
-                "Certificate changed for ${result.host}. Open the page directly to review and accept it."
+                app.getString(R.string.embedded_media_error_tofu_warning, result.host)
 
             is GeminiFetchResult.TofuExpired -> {
                 val expiredDate = java.text.SimpleDateFormat(
                     "yyyy-MM-dd HH:mm",
                     java.util.Locale.getDefault()
                 ).format(java.util.Date(result.expiredAt))
-                "Server certificate expired on $expiredDate"
+                app.getString(R.string.embedded_media_error_tofu_expired, expiredDate)
             }
 
             is GeminiFetchResult.TofuNotYetValid -> {
@@ -1369,21 +1374,25 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     "yyyy-MM-dd HH:mm",
                     java.util.Locale.getDefault()
                 ).format(java.util.Date(result.notBefore))
-                "Server certificate is not yet valid (valid from $validFrom)"
+                app.getString(R.string.embedded_media_error_tofu_not_yet_valid, validFrom)
             }
 
             is GeminiFetchResult.CertificateRequired -> {
                 if (result.meta.isNotBlank()) {
-                    "Client certificate required (${result.statusCode}): ${result.meta}"
+                    app.getString(
+                        R.string.embedded_media_error_client_cert_required_with_meta,
+                        result.statusCode,
+                        result.meta
+                    )
                 } else {
-                    "Client certificate required (${result.statusCode})"
+                    app.getString(R.string.embedded_media_error_client_cert_required, result.statusCode)
                 }
             }
 
             is GeminiFetchResult.Error ->
-                result.exception.message ?: "Connection error while loading media"
+                result.exception.message ?: app.getString(R.string.embedded_media_error_connection)
 
-            is GeminiFetchResult.Success -> "Failed to load media"
+            is GeminiFetchResult.Success -> app.getString(R.string.embedded_media_error_failed_to_load_media)
         }
     }
 }
