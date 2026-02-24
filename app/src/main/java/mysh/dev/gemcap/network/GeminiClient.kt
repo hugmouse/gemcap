@@ -2,6 +2,7 @@ package mysh.dev.gemcap.network
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -136,7 +137,9 @@ class GeminiClient(context: Context) {
                 delay(100L * attempt)
             }
         }
-        return lastError!!
+        return requireNotNull(lastError) {
+            "Transient SSL retry exhausted without capturing an error result"
+        }
     }
 
     private suspend fun fetchInternal(
@@ -315,12 +318,16 @@ class GeminiClient(context: Context) {
             closeRawSocket()
             Log.e(TAG, "SSL error fetching: $url", e)
             return GeminiFetchResult.Error(e)
+        } catch (e: CancellationException) {
+            closeRawSocket()
+            throw e
         } catch (e: Exception) {
             closeRawSocket()
             Log.e(TAG, "Failed to fetch: $url", e)
             return GeminiFetchResult.Error(e)
         }
     }
+
     private fun isTransientSslException(exception: SSLException): Boolean {
         val message = buildString {
             exception.message?.let { append(it) }
