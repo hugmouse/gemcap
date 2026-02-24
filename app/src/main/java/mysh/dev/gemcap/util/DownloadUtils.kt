@@ -13,25 +13,29 @@ object DownloadUtils {
         fileName: String,
         mimeType: String
     ): Result<String> {
-        val contentValues = ContentValues().apply {
-            put(MediaStore.Downloads.DISPLAY_NAME, fileName)
-            put(MediaStore.Downloads.MIME_TYPE, mimeType)
-            put(MediaStore.Downloads.IS_PENDING, 1)
+        return try {
+            val contentValues = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+
+            val resolver = context.contentResolver
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                ?: return Result.failure(Exception("Failed to create download entry"))
+
+            resolver.openOutputStream(uri)?.use { outputStream ->
+                outputStream.write(data)
+            } ?: return Result.failure(Exception("Failed to open output stream"))
+
+            contentValues.clear()
+            contentValues.put(MediaStore.Downloads.IS_PENDING, 0)
+            resolver.update(uri, contentValues, null, null)
+
+            Result.success("Downloads/$fileName")
+        } catch (e: Exception) {
+            Result.failure(e)
         }
-
-        val resolver = context.contentResolver
-        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-            ?: return Result.failure(Exception("Failed to create download entry"))
-
-        resolver.openOutputStream(uri)?.use { outputStream ->
-            outputStream.write(data)
-        } ?: return Result.failure(Exception("Failed to open output stream"))
-
-        contentValues.clear()
-        contentValues.put(MediaStore.Downloads.IS_PENDING, 0)
-        resolver.update(uri, contentValues, null, null)
-
-        return Result.success("Downloads/$fileName")
     }
 
     fun suggestFileName(url: String, mimeType: String): String {
