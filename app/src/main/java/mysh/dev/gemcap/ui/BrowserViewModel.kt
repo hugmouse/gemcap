@@ -1027,7 +1027,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 expectedDisplayedUrl = baseDisplayedUrl,
                 expectedStates = setOf(
                     GeminiContent.EmbeddedMediaState.COLLAPSED,
-                    GeminiContent.EmbeddedMediaState.ERROR
+                    GeminiContent.EmbeddedMediaState.ERROR,
+                    GeminiContent.EmbeddedMediaState.LOADING
                 )
             ) { item ->
                 item.copy(
@@ -1048,7 +1049,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     expectedDisplayedUrl = baseDisplayedUrl,
                     expectedStates = setOf(
                         GeminiContent.EmbeddedMediaState.COLLAPSED,
-                        GeminiContent.EmbeddedMediaState.ERROR
+                        GeminiContent.EmbeddedMediaState.ERROR,
+                        GeminiContent.EmbeddedMediaState.LOADING
                     )
                 ) { item ->
                     item.copy(
