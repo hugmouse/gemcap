@@ -412,7 +412,6 @@ private fun LoadedInlineImage(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun rememberAudioPlayerState(
     itemId: Int,
@@ -459,6 +458,7 @@ private class AudioPlayerState(
         private set
     var isPlaying by mutableStateOf(false)
         private set
+    val isPaused: Boolean get() = mediaPlayer != null && !isPlaying
     var playbackError by mutableStateOf<String?>(null)
         private set
 
@@ -636,7 +636,7 @@ private fun LoadedAudioMediaCard(
         audioPlayerState.playbackError != null -> audioPlayerState.playbackError!!
         audioPlayerState.isPreparing -> preparingAudioText
         audioPlayerState.isPlaying -> playingText
-        audioPlayerState.mediaPlayer != null -> pausedText
+        audioPlayerState.isPaused -> pausedText
         else -> readyToPlayText
     }
 
