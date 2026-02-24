@@ -54,4 +54,13 @@
     <string name="embedded_media_error_client_cert_required_with_meta">Client certificate required (%1$d): %2$s</string>
     <string name="embedded_media_error_connection">Connection error while loading media</string>
     <string name="embedded_media_error_failed_to_load_media">Failed to load media</string>
+    <string name="embedded_media_error_no_prompt">No prompt provided</string>
+    <string name="embedded_media_error_input_required">Input required: %1$s</string>
+    <string name="embedded_media_error_no_retry_hint">No retry hint provided</string>
+    <string name="embedded_media_error_slow_down">Server asked to slow down: %1$s</string>
+    <string name="embedded_media_error_temporary_failure">Temporary failure %1$d: %2$s</string>
+    <string name="embedded_media_error_permanent_failure">Permanent failure %1$d: %2$s</string>
+    <string name="embedded_media_error_unknown_status">Unknown status</string>
+    <string name="embedded_media_error_unexpected_status">Unexpected Gemini status %1$d: %2$s</string>
+    <string name="embedded_media_error_too_many_redirects">Too many redirects (max %1$d)</string>
 </resources>
