@@ -14,6 +14,7 @@ import mysh.dev.gemcap.domain.GeminiResponse
 import mysh.dev.gemcap.domain.ServerCertInfo
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.asn1.x500.style.BCStyle
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -31,6 +32,8 @@ private const val MAX_URI_BYTES = 1024
 private const val MAX_SSL_RETRIES = 3
 private const val CONNECT_TIMEOUT_MS = 10_000
 private const val READ_TIMEOUT_MS = 30_000
+private const val MAX_HEADER_BYTES = 1024
+private const val DEFAULT_MAX_RESPONSE_BODY_BYTES = 16 * 1024 * 1024
 
 class UriTooLongException(length: Int) :
     Exception("URI exceeds maximum length of $MAX_URI_BYTES bytes (was $length)")
@@ -80,10 +83,17 @@ sealed class GeminiFetchResult {
     data class Error(val exception: Exception) : GeminiFetchResult()
 }
 
-class GeminiClient(context: Context) {
+class GeminiClient(
+    context: Context,
+    private val maxResponseBodyBytes: Int = DEFAULT_MAX_RESPONSE_BODY_BYTES
+) {
 
     private val tofuTrustManager = TofuTrustManager(context)
     private val keyStore = ClientCertKeyStore()
+
+    init {
+        require(maxResponseBodyBytes > 0) { "maxResponseBodyBytes must be > 0" }
+    }
 
     private fun createSslContext(certAlias: String?): SSLContext {
         val keyManager = SelectiveKeyManager(keyStore, certAlias)
@@ -142,6 +152,7 @@ class GeminiClient(context: Context) {
         }
     }
 
+    @Suppress("TooGenericExceptionCaught")
     private suspend fun fetchInternal(
         url: String,
         socketFactory: javax.net.ssl.SSLSocketFactory
@@ -322,6 +333,8 @@ class GeminiClient(context: Context) {
             closeRawSocket()
             throw e
         } catch (e: Exception) {
+            // SocketException, SSLException, and CancellationException are handled above.
+            // Keep this fallback so fetchWithRetry can surface unexpected runtime failures.
             closeRawSocket()
             Log.e(TAG, "Failed to fetch: $url", e)
             return GeminiFetchResult.Error(e)
@@ -356,19 +369,31 @@ class GeminiClient(context: Context) {
     }
 
     private fun parseResponse(inputStream: InputStream): GeminiResponse {
-        val allBytes = inputStream.readBytes()
-
+        val headerBuffer = ByteArrayOutputStream()
+        var previous = -1
+        var current: Int
         var headerEndIndex = -1
-        for (i in 0 until allBytes.size - 1) {
-            if (allBytes[i] == '\r'.code.toByte() && allBytes[i + 1] == '\n'.code.toByte()) {
-                headerEndIndex = i
+
+        while (true) {
+            current = inputStream.read()
+            if (current == -1) {
                 break
             }
+            headerBuffer.write(current)
+            if (headerBuffer.size() > MAX_HEADER_BYTES) {
+                throw Exception("Invalid response: header exceeds $MAX_HEADER_BYTES bytes")
+            }
+            if (previous == '\r'.code && current == '\n'.code) {
+                headerEndIndex = headerBuffer.size() - 2
+                break
+            }
+            previous = current
         }
 
         if (headerEndIndex == -1) throw Exception("Invalid response: no header terminator found")
 
-        val headerLine = String(allBytes, 0, headerEndIndex, Charsets.UTF_8)
+        val headerBytes = headerBuffer.toByteArray()
+        val headerLine = String(headerBytes, 0, headerEndIndex, Charsets.UTF_8)
         val parts = headerLine.trim().split(Regex("\\s+"), 2)
         val statusString = parts.getOrNull(0) ?: throw Exception("Invalid status")
         val meta = parts.getOrNull(1) ?: ""
@@ -377,11 +402,31 @@ class GeminiClient(context: Context) {
 
         var body: ByteArray? = null
         if (status in 20..29) {
-            val bodyStart = headerEndIndex + 2
-            body = allBytes.copyOfRange(bodyStart, allBytes.size)
+            body = readResponseBodyWithLimit(inputStream)
         }
 
         return GeminiResponse(status, meta, body)
+    }
+
+    private fun readResponseBodyWithLimit(inputStream: InputStream): ByteArray {
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        val output = ByteArrayOutputStream()
+        var totalBytes = 0
+
+        while (true) {
+            val read = inputStream.read(buffer)
+            if (read == -1) {
+                break
+            }
+            totalBytes += read
+            if (totalBytes > maxResponseBodyBytes) {
+                throw Exception(
+                    "Response body exceeds max size of $maxResponseBodyBytes bytes"
+                )
+            }
+            output.write(buffer, 0, read)
+        }
+        return output.toByteArray()
     }
 
     private fun normalizeUrl(url: String): String {
