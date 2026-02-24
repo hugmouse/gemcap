@@ -55,6 +55,7 @@ import androidx.compose.foundation.text.selection.DisableSelection
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import mysh.dev.gemcap.domain.GeminiContent
+import mysh.dev.gemcap.domain.StableByteArray
 import java.util.Locale
 import kotlin.math.min
 
@@ -66,7 +67,7 @@ fun EmbeddedMediaContent(
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
-    onDownloadMedia: (String, ByteArray, String) -> Unit
+    onDownloadMedia: (String, StableByteArray, String) -> Unit
 ) {
     when (item.state) {
         GeminiContent.EmbeddedMediaState.COLLAPSED -> {
@@ -187,32 +188,64 @@ private fun CollapsedMediaCard(
             }
         }
 
-        DisableSelection {
-            DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = { showMenu = false }
-            ) {
+        MediaContextMenu(
+            expanded = showMenu,
+            onDismiss = { showMenu = false },
+            url = item.url,
+            onOpenInNewTab = onOpenInNewTab,
+            onCopyLink = onCopyLink
+        )
+    }
+}
+
+@Composable
+private fun MediaContextMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    url: String,
+    onOpenInNewTab: (String) -> Unit,
+    onCopyLink: (String) -> Unit,
+    onDownload: (() -> Unit)? = null,
+    extraItems: (@Composable (() -> Unit))? = null
+) {
+    DisableSelection {
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = onDismiss
+        ) {
+            DropdownMenuItem(
+                text = { Text("Open in new tab") },
+                onClick = {
+                    onDismiss()
+                    onOpenInNewTab(url)
+                },
+                leadingIcon = {
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Copy link address") },
+                onClick = {
+                    onDismiss()
+                    onCopyLink(url)
+                },
+                leadingIcon = {
+                    Icon(Icons.Default.ContentCopy, contentDescription = null)
+                }
+            )
+            onDownload?.let {
                 DropdownMenuItem(
-                    text = { Text("Open in new tab") },
+                    text = { Text("Download") },
                     onClick = {
-                        showMenu = false
-                        onOpenInNewTab(item.url)
+                        onDismiss()
+                        it()
                     },
                     leadingIcon = {
-                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text("Copy link address") },
-                    onClick = {
-                        showMenu = false
-                        onCopyLink(item.url)
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.ContentCopy, contentDescription = null)
+                        Icon(Icons.Default.Download, contentDescription = null)
                     }
                 )
             }
+            extraItems?.invoke()
         }
     }
 }
@@ -259,10 +292,10 @@ private fun LoadedMediaCard(
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
-    onDownloadMedia: (String, ByteArray, String) -> Unit
+    onDownloadMedia: (String, StableByteArray, String) -> Unit
 ) {
     val mediaType = getMediaType(item.mimeType)
-    val data = item.data?.bytes ?: ByteArray(0)
+    val data = item.data ?: StableByteArray(ByteArray(0))
 
     if (mediaType == MediaType.IMAGE) {
         LoadedInlineImage(
@@ -301,16 +334,16 @@ private fun LoadedMediaCard(
 @Composable
 private fun LoadedInlineImage(
     item: GeminiContent.EmbeddedMedia,
-    imageData: ByteArray,
+    imageData: StableByteArray,
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
-    onDownloadMedia: (String, ByteArray, String) -> Unit
+    onDownloadMedia: (String, StableByteArray, String) -> Unit
 ) {
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
     val imageMetadata = remember(item.mimeType, imageData) {
-        buildImageMetadataText(item.mimeType, imageData)
+        buildImageMetadataText(item.mimeType, imageData.bytes)
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -331,52 +364,25 @@ private fun LoadedInlineImage(
             ) {
                 AsyncImage(
                     model = ImageRequest.Builder(context)
-                        .data(imageData)
+                        .data(imageData.bytes)
                         .crossfade(true)
                         .build(),
                     contentDescription = "Image from ${item.url}",
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .widthIn(max = 600.dp),
+                        .widthIn(max = 600.dp)
+                        .fillMaxWidth(),
                     contentScale = ContentScale.Fit
                 )
             }
 
-            DisableSelection {
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Open in new tab") },
-                        onClick = {
-                            showMenu = false
-                            onOpenInNewTab(item.url)
-                        },
-                        leadingIcon = {
-                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Copy link address") },
-                        onClick = {
-                            showMenu = false
-                            onCopyLink(item.url)
-                        },
-                        leadingIcon = {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null)
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Download") },
-                        onClick = {
-                            showMenu = false
-                            onDownloadMedia(item.url, imageData, item.mimeType)
-                        },
-                        leadingIcon = {
-                            Icon(Icons.Default.Download, contentDescription = null)
-                        }
-                    )
+            MediaContextMenu(
+                expanded = showMenu,
+                onDismiss = { showMenu = false },
+                url = item.url,
+                onOpenInNewTab = onOpenInNewTab,
+                onCopyLink = onCopyLink,
+                onDownload = { onDownloadMedia(item.url, imageData, item.mimeType) },
+                extraItems = {
                     DropdownMenuItem(
                         text = { Text("Hide image") },
                         onClick = {
@@ -385,7 +391,7 @@ private fun LoadedInlineImage(
                         }
                     )
                 }
-            }
+            )
         }
 
         Text(
@@ -400,10 +406,10 @@ private fun LoadedInlineImage(
 @Composable
 private fun LoadedAudioMediaCard(
     item: GeminiContent.EmbeddedMedia,
-    audioData: ByteArray,
+    audioData: StableByteArray,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
-    onDownloadMedia: (String, ByteArray, String) -> Unit
+    onDownloadMedia: (String, StableByteArray, String) -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var mediaPlayer by remember(item.id, item.data) { mutableStateOf<MediaPlayer?>(null) }
@@ -459,7 +465,7 @@ private fun LoadedAudioMediaCard(
                 playbackError = "Playback error"
                 true
             }
-            player.setDataSource(ByteArrayMediaDataSource(audioData))
+            player.setDataSource(ByteArrayMediaDataSource(audioData.bytes))
             mediaPlayer = player
             isPreparing = true
             player.prepareAsync()
@@ -524,7 +530,18 @@ private fun LoadedAudioMediaCard(
 
     DisposableEffect(item.id, item.data) {
         onDispose {
-            releasePlayer()
+            val capturedPlayer = mediaPlayer
+            runCatching {
+                capturedPlayer?.setOnPreparedListener(null)
+                capturedPlayer?.setOnCompletionListener(null)
+                capturedPlayer?.setOnErrorListener(null)
+                capturedPlayer?.release()
+            }
+            if (mediaPlayer === capturedPlayer) {
+                mediaPlayer = null
+            }
+            isPreparing = false
+            isPlaying = false
         }
     }
 
@@ -572,7 +589,7 @@ private fun LoadedAudioMediaCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "${item.mimeType} - ${formatBytes(audioData.size)}",
+                        text = "${item.mimeType} - ${formatBytes(audioData.bytes.size)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -617,43 +634,14 @@ private fun LoadedAudioMediaCard(
             }
         }
 
-        DisableSelection {
-            DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = { showMenu = false }
-            ) {
-                DropdownMenuItem(
-                    text = { Text("Open in new tab") },
-                    onClick = {
-                        showMenu = false
-                        onOpenInNewTab(item.url)
-                    },
-                    leadingIcon = {
-                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text("Copy link address") },
-                    onClick = {
-                        showMenu = false
-                        onCopyLink(item.url)
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.ContentCopy, contentDescription = null)
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text("Download") },
-                    onClick = {
-                        showMenu = false
-                        onDownloadMedia(item.url, audioData, item.mimeType)
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.Download, contentDescription = null)
-                    }
-                )
-            }
-        }
+        MediaContextMenu(
+            expanded = showMenu,
+            onDismiss = { showMenu = false },
+            url = item.url,
+            onOpenInNewTab = onOpenInNewTab,
+            onCopyLink = onCopyLink,
+            onDownload = { onDownloadMedia(item.url, audioData, item.mimeType) }
+        )
     }
 }
 
@@ -662,10 +650,10 @@ private fun LoadedAudioMediaCard(
 private fun LoadedBinaryMediaCard(
     item: GeminiContent.EmbeddedMedia,
     mediaType: MediaType,
-    data: ByteArray,
+    data: StableByteArray,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
-    onDownloadMedia: (String, ByteArray, String) -> Unit
+    onDownloadMedia: (String, StableByteArray, String) -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val icon = when (mediaType) {
@@ -713,7 +701,7 @@ private fun LoadedBinaryMediaCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "${mediaType.label} loaded (${formatBytes(data.size)})",
+                        text = "${mediaType.label} loaded (${formatBytes(data.bytes.size)})",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -721,43 +709,14 @@ private fun LoadedBinaryMediaCard(
             }
         }
 
-        DisableSelection {
-            DropdownMenu(
-                expanded = showMenu,
-                onDismissRequest = { showMenu = false }
-            ) {
-                DropdownMenuItem(
-                    text = { Text("Open in new tab") },
-                    onClick = {
-                        showMenu = false
-                        onOpenInNewTab(item.url)
-                    },
-                    leadingIcon = {
-                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text("Copy link address") },
-                    onClick = {
-                        showMenu = false
-                        onCopyLink(item.url)
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.ContentCopy, contentDescription = null)
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text("Download") },
-                    onClick = {
-                        showMenu = false
-                        onDownloadMedia(item.url, data, item.mimeType)
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.Download, contentDescription = null)
-                    }
-                )
-            }
-        }
+        MediaContextMenu(
+            expanded = showMenu,
+            onDismiss = { showMenu = false },
+            url = item.url,
+            onOpenInNewTab = onOpenInNewTab,
+            onCopyLink = onCopyLink,
+            onDownload = { onDownloadMedia(item.url, data, item.mimeType) }
+        )
     }
 }
 
