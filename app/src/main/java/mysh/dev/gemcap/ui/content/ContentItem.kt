@@ -15,7 +15,10 @@ fun ContentItem(
     onLinkClick: (String) -> Unit,
     onOpenImageInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
-    onOpenInNewTab: (String) -> Unit
+    onOpenInNewTab: (String) -> Unit,
+    onLoadEmbeddedMedia: (Int) -> Unit,
+    onCollapseEmbeddedMedia: (Int) -> Unit,
+    onDownloadEmbeddedMedia: (String, ByteArray, String) -> Unit
 ) {
     when (item) {
         is GeminiContent.Heading -> HeadingContent(item, styles, searchQuery)
@@ -33,5 +36,14 @@ fun ContentItem(
         is GeminiContent.Quote -> QuoteContent(item, styles, searchQuery)
         is GeminiContent.Preformatted -> PreformattedContent(item, styles, searchQuery, highlight)
         is GeminiContent.Image -> ImageContent(item, onOpenImageInNewTab)
+        is GeminiContent.EmbeddedMedia -> EmbeddedMediaContent(
+            item = item,
+            styles = styles,
+            onLoadMedia = onLoadEmbeddedMedia,
+            onCollapseMedia = onCollapseEmbeddedMedia,
+            onOpenInNewTab = onOpenInNewTab,
+            onCopyLink = onCopyLink,
+            onDownloadMedia = onDownloadEmbeddedMedia
+        )
     }
 }

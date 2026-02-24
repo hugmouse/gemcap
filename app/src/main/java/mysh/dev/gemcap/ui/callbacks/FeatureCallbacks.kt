@@ -106,6 +106,9 @@ interface AutocompleteCallbacks {
 
 interface LinkContextCallbacks {
     fun onCopyLink(url: String)
+    fun onLoadEmbeddedMedia(itemId: Int)
+    fun onCollapseEmbeddedMedia(itemId: Int)
+    fun onDownloadEmbeddedMedia(url: String, data: ByteArray, mimeType: String)
 }
 
 interface BrowserCallbacks :

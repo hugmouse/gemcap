@@ -17,9 +17,11 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import mysh.dev.gemcap.data.BrowserRepository
 import mysh.dev.gemcap.data.ClientCertRepository
@@ -47,6 +49,7 @@ import mysh.dev.gemcap.network.IdentityParams
 import mysh.dev.gemcap.ui.managers.BookmarkManager
 import mysh.dev.gemcap.ui.managers.CertificateManager
 import mysh.dev.gemcap.ui.managers.DialogManager
+import mysh.dev.gemcap.ui.managers.EmbeddedMediaCache
 import mysh.dev.gemcap.ui.managers.HistoryManager
 import mysh.dev.gemcap.ui.managers.SearchManager
 import mysh.dev.gemcap.ui.managers.SettingsManager
@@ -66,6 +69,10 @@ import java.net.URLEncoder
 // Don't you love when one view model literally controls everything?
 // TODO: try to refactor it
 class BrowserViewModel(application: Application) : AndroidViewModel(application) {
+    companion object {
+        private const val EMBEDDED_MEDIA_CACHE_MAX_BYTES = 50 * 1024 * 1024
+        private const val EMBEDDED_MEDIA_CACHE_TTL_MILLIS = 30L * 60L * 1000L
+    }
 
     private val client = GeminiClient(application)
     private val repository = BrowserRepository(application)
@@ -74,6 +81,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val certGenerator = CertificateGenerator(certRepository.getKeyStore(), certRepository)
     private val backoffManager = BackoffManager()
     private val clipboardManager = application.getSystemService(ClipboardManager::class.java)
+    private val embeddedMediaCache = EmbeddedMediaCache(
+        maxBytes = EMBEDDED_MEDIA_CACHE_MAX_BYTES,
+        ttlMillis = EMBEDDED_MEDIA_CACHE_TTL_MILLIS
+    )
 
     // Track loading jobs per tab for cancellation
     private val loadingJobs = mutableMapOf<String, Job>()
@@ -186,6 +197,11 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
         data class SlowDown(val meta: String, val url: String) : FetchResult()
         data class Error(val error: GeminiError) : FetchResult()
+    }
+    private sealed class EmbeddedMediaFetchResult {
+        data class Success(val response: GeminiResponse, val finalUrl: String) :
+            EmbeddedMediaFetchResult()
+        data class Error(val message: String) : EmbeddedMediaFetchResult()
     }
 
     init {
@@ -765,8 +781,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun onLinkClick(linkUrl: String) {
         try {
             val currentTab = activeTab ?: return
-            val currentUri = URI(currentTab.url)
-            val resolvedUri = currentUri.resolve(linkUrl)
+            val resolvedUrl = resolveUrl(linkUrl, currentTab.url)
+            val resolvedUri = URI(resolvedUrl)
             val requiresInput = linkUrl.endsWith("?") || linkUrl.contains("%s")
 
             val scheme = resolvedUri.scheme?.lowercase()
@@ -779,13 +795,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             if (requiresInput && isGemini) {
                 dialogManager.showInputPrompt(
                     promptText = "Input required",
-                    targetUrl = resolvedUri.toString(),
+                    targetUrl = resolvedUrl,
                     isSensitive = false
                 )
                 return
             }
 
-            currentTab.updateUrl(resolvedUri.toString())
+            currentTab.updateUrl(resolvedUrl)
             loadPage(addToHistory = true)
         } catch (e: Exception) {
             activeTab?.error = GeminiError(
@@ -932,7 +948,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     // Link context
     fun openLinkInNewTab(url: String) {
-        tabManager.openInNewTab(url)
+        tabManager.openInNewTab(resolveUrl(url))
         loadPage(addToHistory = true)
     }
 
@@ -946,4 +962,283 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     // Backoff
     fun cancelBackoff() = dialogManager.cancelBackoff()
+
+    // Embedded media loading (Lagrange-style!)
+    fun loadEmbeddedMedia(itemId: Int) {
+        val tab = activeTab ?: return
+        val baseDisplayedUrl = tab.displayedUrl.ifBlank { tab.url }
+        val media = tab.content.firstOrNull {
+            it is GeminiContent.EmbeddedMedia && it.id == itemId
+        } as? GeminiContent.EmbeddedMedia ?: return
+        val resolvedUrl = resolveUrl(media.url, baseDisplayedUrl)
+        val certAlias = try {
+            val resolvedUri = URI(resolvedUrl)
+            certificateManager.findBestMatch(resolvedUri.host ?: "", resolvedUri.path ?: "/")
+        } catch (_: Exception) {
+            null
+        }
+        val cacheKey = buildEmbeddedMediaCacheKey(resolvedUrl, certAlias)
+        embeddedMediaCache.get(cacheKey)?.let { cached ->
+            val applied = updateEmbeddedMedia(
+                tab = tab,
+                itemId = itemId,
+                expectedDisplayedUrl = baseDisplayedUrl,
+                expectedStates = setOf(
+                    GeminiContent.EmbeddedMediaState.COLLAPSED,
+                    GeminiContent.EmbeddedMediaState.ERROR
+                )
+            ) { item ->
+                item.copy(
+                    state = GeminiContent.EmbeddedMediaState.LOADED,
+                    mimeType = cached.mimeType,
+                    data = cached.data,
+                    errorMessage = null
+                )
+            }
+            if (applied) {
+                return
+            }
+        }
+ 
+        viewModelScope.launch {
+            val markedLoading = updateEmbeddedMedia(
+                tab = tab,
+                itemId = itemId,
+                expectedDisplayedUrl = baseDisplayedUrl,
+                expectedStates = setOf(
+                    GeminiContent.EmbeddedMediaState.COLLAPSED,
+                    GeminiContent.EmbeddedMediaState.ERROR
+                )
+            ) { item ->
+                item.copy(
+                    state = GeminiContent.EmbeddedMediaState.LOADING,
+                    errorMessage = null
+                )
+            }
+            if (!markedLoading) {
+                return@launch
+            }
+            when (val result = fetchEmbeddedMediaWithRedirects(resolvedUrl, certAlias)) {
+                is EmbeddedMediaFetchResult.Success -> {
+                    val response = result.response
+                    val mimeType = response.meta.lowercase().split(";").first().trim()
+                    val data = response.body ?: ByteArray(0)
+                    val resolvedMimeType = mimeType.ifBlank { media.mimeType }
+                    val stableData = StableByteArray(data)
+                    embeddedMediaCache.put(cacheKey, stableData, resolvedMimeType)
+                    updateEmbeddedMedia(
+                        tab = tab,
+                        itemId = itemId,
+                        expectedDisplayedUrl = baseDisplayedUrl,
+                        expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
+                    ) { item ->
+                        item.copy(
+                            state = GeminiContent.EmbeddedMediaState.LOADED,
+                            mimeType = resolvedMimeType,
+                            data = stableData,
+                            errorMessage = null
+                        )
+                    }
+                }
+                is EmbeddedMediaFetchResult.Error -> {
+                    updateEmbeddedMedia(
+                        tab = tab,
+                        itemId = itemId,
+                        expectedDisplayedUrl = baseDisplayedUrl,
+                        expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
+                    ) { item ->
+                        item.copy(
+                            state = GeminiContent.EmbeddedMediaState.ERROR,
+                            errorMessage = result.message
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun collapseEmbeddedMedia(itemId: Int) {
+        val tab = activeTab ?: return
+        updateEmbeddedMedia(tab, itemId) { item ->
+            item.copy(
+                state = GeminiContent.EmbeddedMediaState.COLLAPSED,
+                data = null,
+                errorMessage = null
+            )
+        }
+    }
+
+    fun downloadEmbeddedMedia(url: String, data: ByteArray, mimeType: String) {
+        val fileName = DownloadUtils.suggestFileName(url, mimeType)
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = DownloadUtils.saveToDownloads(
+                context = getApplication(),
+                data = data,
+                fileName = fileName,
+                mimeType = mimeType
+            )
+            withContext(Dispatchers.Main) {
+                snackbarHostState.showSnackbar(
+                    result.fold(
+                        onSuccess = { "Saved to $it" },
+                        onFailure = { "Download failed: ${it.message}" }
+                    )
+                )
+            }
+        }
+    }
+
+    private fun resolveUrl(
+        url: String,
+        baseUrl: String = activeTab?.displayedUrl?.ifBlank { activeTab?.url } ?: url
+    ): String {
+        return try {
+            if (baseUrl.isBlank()) {
+                return url
+            }
+            URI(baseUrl).resolve(url).toString()
+        } catch (_: Exception) {
+            url
+        }
+    }
+ 
+    private fun buildEmbeddedMediaCacheKey(resolvedUrl: String, certAlias: String?): String {
+        return if (certAlias.isNullOrBlank()) {
+            resolvedUrl
+        } else {
+            "$resolvedUrl|$certAlias"
+        }
+    }
+
+    private fun updateEmbeddedMedia(
+        tab: TabState,
+        itemId: Int,
+        expectedDisplayedUrl: String? = null,
+        expectedStates: Set<GeminiContent.EmbeddedMediaState>? = null,
+        transform: (GeminiContent.EmbeddedMedia) -> GeminiContent.EmbeddedMedia
+    ): Boolean {
+        if (tabManager.tabs.none { it.id == tab.id }) {
+            return false
+        }
+        val effectiveDisplayedUrl = tab.displayedUrl.ifBlank { tab.url }
+        if (expectedDisplayedUrl != null && effectiveDisplayedUrl != expectedDisplayedUrl) {
+            return false
+        }
+        var replaced = false
+        tab.content = tab.content.map { item ->
+            if (!replaced && item is GeminiContent.EmbeddedMedia && item.id == itemId) {
+                if (expectedStates != null && item.state !in expectedStates) {
+                    item
+                } else {
+                    replaced = true
+                    transform(item)
+                }
+            } else {
+                item
+            }
+        }.toImmutableList()
+        return replaced
+    }
+ 
+    private suspend fun fetchEmbeddedMediaWithRedirects(
+        initialUrl: String,
+        certAlias: String?,
+        maxRedirects: Int = 5
+    ): EmbeddedMediaFetchResult {
+        var currentUrl = initialUrl
+        var redirectCount = 0
+        while (redirectCount < maxRedirects) {
+            when (val result = client.fetch(currentUrl, certAlias)) {
+                is GeminiFetchResult.Success -> {
+                    val response = result.response
+                    when (response.status) {
+                        in 20..29 -> return EmbeddedMediaFetchResult.Success(response, currentUrl)
+                        in 30..39 -> {
+                            val targetUrl = response.meta
+                            if (targetUrl.isBlank()) {
+                                return EmbeddedMediaFetchResult.Error("Empty redirect target")
+                            }
+                            currentUrl = try {
+                                URI(currentUrl).resolve(targetUrl).toString()
+                            } catch (e: Exception) {
+                                return EmbeddedMediaFetchResult.Error(
+                                    "Invalid redirect target: ${e.message ?: targetUrl}"
+                                )
+                            }
+                            redirectCount++
+                        }
+                        in 10..19 -> {
+                            val prompt = response.meta.ifBlank { "No prompt provided" }
+                            return EmbeddedMediaFetchResult.Error("Input required: $prompt")
+                        }
+                        44 -> {
+                            val meta = response.meta.ifBlank { "No retry hint provided" }
+                            return EmbeddedMediaFetchResult.Error("Server asked to slow down: $meta")
+                        }
+                        in 40..49 -> {
+                            return EmbeddedMediaFetchResult.Error(
+                                "Temporary failure ${response.status}: ${response.meta}"
+                            )
+                        }
+                        in 50..59 -> {
+                            return EmbeddedMediaFetchResult.Error(
+                                "Permanent failure ${response.status}: ${response.meta}"
+                            )
+                        }
+                        else -> {
+                            val meta = response.meta.ifBlank { "Unknown status" }
+                            return EmbeddedMediaFetchResult.Error(
+                                "Unexpected Gemini status ${response.status}: $meta"
+                            )
+                        }
+                    }
+                }
+                else -> {
+                    return EmbeddedMediaFetchResult.Error(formatEmbeddedMediaFetchError(result))
+                }
+            }
+        }
+        return EmbeddedMediaFetchResult.Error("Too many redirects (max $maxRedirects)")
+    }
+
+    private fun formatEmbeddedMediaFetchError(result: GeminiFetchResult): String {
+        return when (result) {
+            is GeminiFetchResult.TofuDomainMismatch -> {
+                val domains = result.certDomains.joinToString(", ").ifBlank { "unknown domains" }
+                "Certificate domain mismatch for ${result.host}. Certificate is valid for: $domains"
+            }
+
+            is GeminiFetchResult.TofuWarning ->
+                "Certificate changed for ${result.host}. Open the page directly to review and accept it."
+
+            is GeminiFetchResult.TofuExpired -> {
+                val expiredDate = java.text.SimpleDateFormat(
+                    "yyyy-MM-dd HH:mm",
+                    java.util.Locale.getDefault()
+                ).format(java.util.Date(result.expiredAt))
+                "Server certificate expired on $expiredDate"
+            }
+
+            is GeminiFetchResult.TofuNotYetValid -> {
+                val validFrom = java.text.SimpleDateFormat(
+                    "yyyy-MM-dd HH:mm",
+                    java.util.Locale.getDefault()
+                ).format(java.util.Date(result.notBefore))
+                "Server certificate is not yet valid (valid from $validFrom)"
+            }
+
+            is GeminiFetchResult.CertificateRequired -> {
+                if (result.meta.isNotBlank()) {
+                    "Client certificate required (${result.statusCode}): ${result.meta}"
+                } else {
+                    "Client certificate required (${result.statusCode})"
+                }
+            }
+
+            is GeminiFetchResult.Error ->
+                result.exception.message ?: "Connection error while loading media"
+
+            is GeminiFetchResult.Success -> "Failed to load media"
+        }
+    }
 }

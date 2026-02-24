@@ -610,7 +610,14 @@ private fun GeminiContentList(
                                     onLinkClick = { callbacks.onLinkClick(it) },
                                     onOpenImageInNewTab = { callbacks.onOpenImageInNewTab(it) },
                                     onCopyLink = { callbacks.onCopyLink(it) },
-                                    onOpenInNewTab = { callbacks.onOpenInNewTab(it) }
+                                    onOpenInNewTab = { callbacks.onOpenInNewTab(it) },
+                                    onLoadEmbeddedMedia = { callbacks.onLoadEmbeddedMedia(it) },
+                                    onCollapseEmbeddedMedia = {
+                                        callbacks.onCollapseEmbeddedMedia(it)
+                                    },
+                                    onDownloadEmbeddedMedia = { url, data, mimeType ->
+                                        callbacks.onDownloadEmbeddedMedia(url, data, mimeType)
+                                    }
                                 )
                             }
                         }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
@@ -14,17 +15,21 @@ import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.asn1.x500.style.BCStyle
 import java.io.InputStream
 import java.net.InetSocketAddress
+import java.net.Socket
 import java.net.URI
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import javax.net.ssl.KeyManager
-import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLException
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.TrustManager
 
 private const val TAG = "GeminiClient"
 private const val MAX_URI_BYTES = 1024
+private const val MAX_SSL_RETRIES = 3
+private const val CONNECT_TIMEOUT_MS = 10_000
+private const val READ_TIMEOUT_MS = 30_000
 
 class UriTooLongException(length: Int) :
     Exception("URI exceeds maximum length of $MAX_URI_BYTES bytes (was $length)")
@@ -78,11 +83,9 @@ class GeminiClient(context: Context) {
 
     private val tofuTrustManager = TofuTrustManager(context)
     private val keyStore = ClientCertKeyStore()
-    private val keyManager = SelectiveKeyManager(keyStore)
 
-    private val baseSslContext: SSLContext = createSslContext()
-
-    private fun createSslContext(): SSLContext {
+    private fun createSslContext(certAlias: String?): SSLContext {
+        val keyManager = SelectiveKeyManager(keyStore, certAlias)
         return SSLContext.getInstance("TLS").apply {
             init(
                 arrayOf<KeyManager>(keyManager),
@@ -93,37 +96,7 @@ class GeminiClient(context: Context) {
     }
 
     private fun getSocketFactory(certAlias: String?): javax.net.ssl.SSLSocketFactory {
-        // Use a fresh SSLContext when a client cert is requested to avoid
-        // TLS session resumption skipping client-certificate selection.
-        return if (certAlias == null) {
-            baseSslContext.socketFactory
-        } else {
-            createSslContext().socketFactory
-        }
-    }
-
-    private fun applySni(sslSocket: SSLSocket, host: String) {
-        if (host.isBlank()) return
-        val isIpv4 = host.matches(Regex("^\\d{1,3}(\\.\\d{1,3}){3}$"))
-        val isIpv6 = host.contains(":")
-        if (isIpv4 || isIpv6) return
-        try {
-            val params = sslSocket.sslParameters
-            params.serverNames = listOf(SNIHostName(host))
-            sslSocket.sslParameters = params
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to set SNI for host: $host", e)
-        }
-    }
-
-    private fun applyAlpn(sslSocket: SSLSocket) {
-        try {
-            val params = sslSocket.sslParameters
-            params.applicationProtocols = arrayOf("gemini")
-            sslSocket.sslParameters = params
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to set ALPN for gemini", e)
-        }
+        return createSslContext(certAlias).socketFactory
     }
 
     /**
@@ -134,15 +107,37 @@ class GeminiClient(context: Context) {
      */
     suspend fun fetch(url: String, certAlias: String? = null): GeminiFetchResult =
         withContext(Dispatchers.IO) {
-            // Set up client certificate for this request
-            keyManager.setCurrentAlias(certAlias)
+            fetchWithRetry(url, certAlias)
+        }
 
-            try {
-                fetchInternal(url, getSocketFactory(certAlias))
-            } finally {
-                keyManager.clearCurrentAlias()
+    /**
+     * Retries the fetch on transient SSL errors (BAD_DECRYPT / BAD_RECORD_MAC).
+     *
+     * Some Android TLS 1.3 implementations (BoringSSL/Conscrypt) can intermittently
+     * fail with DECRYPTION_FAILED_OR_BAD_RECORD_MAC when processing post-handshake
+     * messages (e.g. NewSessionTicket). A fresh connection usually succeeds.
+     *
+     * This is a stupid hack and should be removed if I ever understand the issue.
+     */
+    private suspend fun fetchWithRetry(url: String, certAlias: String?): GeminiFetchResult {
+        var lastError: GeminiFetchResult.Error? = null
+        for (attempt in 1..MAX_SSL_RETRIES) {
+            val result = fetchInternal(url, getSocketFactory(certAlias))
+            val sslException = (result as? GeminiFetchResult.Error)?.exception as? SSLException
+            if (sslException == null || !isTransientSslException(sslException)) {
+                return result
+            }
+            lastError = result
+            Log.w(
+                TAG,
+                "Transient SSL error on attempt $attempt/$MAX_SSL_RETRIES for $url: ${sslException.message}"
+            )
+            if (attempt < MAX_SSL_RETRIES) {
+                delay(100L * attempt)
             }
         }
+        return lastError!!
+    }
 
     private suspend fun fetchInternal(
         url: String,
@@ -165,27 +160,42 @@ class GeminiClient(context: Context) {
             "Fetch start url=$url normalized=$normalizedUrl host=$host port=$port path=${uri.path} query=${uri.query}"
         )
 
-        val socket = socketFactory.createSocket() as SSLSocket
+        // First create a plain TCP socket and connect with timeout
+        val rawSocket = Socket()
+        fun closeRawSocket() {
+            runCatching {
+                if (!rawSocket.isClosed) {
+                    rawSocket.close()
+                }
+            }
+        }
 
         // Close socket when coroutine is cancelled - interrupts blocking I/O
         currentCoroutineContext().job.invokeOnCompletion { cause ->
             if (cause != null) {
-                runCatching { socket.close() }
+                closeRawSocket()
             }
         }
 
         try {
-            socket.use { sslSocket ->
-                sslSocket.connect(InetSocketAddress(host, port), 10000)
-                sslSocket.soTimeout = 30000  // 30 second read timeout
-                applySni(sslSocket, host)
-                applyAlpn(sslSocket)
+            Log.d(TAG, "Connecting to $host:$port...")
+            rawSocket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+
+            // Wrap with SSL using the hostname - this properly binds the hostname
+            // to the native SSL object for correct SNI, session management, and
+            // TLS record processing. Using createSocket(socket, host, port, autoClose)
+            // avoids BAD_DECRYPT errors that occur when hostname is only set via
+            // sslParameters after socket creation.
+            val sslSocket = socketFactory.createSocket(
+                rawSocket, host, port, true  // autoClose = true
+            ) as SSLSocket
+
+            sslSocket.use {
+                sslSocket.soTimeout = READ_TIMEOUT_MS
+
+                Log.d(TAG, "Starting TLS handshake for $host...")
                 sslSocket.startHandshake()
-                try {
-                    Log.d(TAG, "ALPN negotiated: ${sslSocket.applicationProtocol}")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to read ALPN protocol", e)
-                }
+                Log.d(TAG, "TLS handshake completed for $host")
                 try {
                     Log.d(
                         TAG,
@@ -296,14 +306,38 @@ class GeminiClient(context: Context) {
                 )
             }
         } catch (e: java.net.SocketException) {
+            closeRawSocket()
             // Check if socket was closed due to cancellation
             currentCoroutineContext().ensureActive()  // Throws CancellationException if cancelled
             Log.e(TAG, "Failed to fetch: $url", e)
             return GeminiFetchResult.Error(e)
+        } catch (e: SSLException) {
+            closeRawSocket()
+            Log.e(TAG, "SSL error fetching: $url", e)
+            return GeminiFetchResult.Error(e)
         } catch (e: Exception) {
+            closeRawSocket()
             Log.e(TAG, "Failed to fetch: $url", e)
             return GeminiFetchResult.Error(e)
         }
+    }
+    private fun isTransientSslException(exception: SSLException): Boolean {
+        val message = buildString {
+            exception.message?.let { append(it) }
+            exception.cause?.message?.let { causeMessage ->
+                if (isNotEmpty()) {
+                    append(' ')
+                }
+                append(causeMessage)
+            }
+        }
+        if (message.isBlank()) {
+            return false
+        }
+        val upper = message.uppercase()
+        return upper.contains("BAD_RECORD_MAC") ||
+            upper.contains("BAD_DECRYPT") ||
+            upper.contains("DECRYPTION_FAILED")
     }
 
     fun bypassDomainCheck(host: String, port: Int = 1965) {
