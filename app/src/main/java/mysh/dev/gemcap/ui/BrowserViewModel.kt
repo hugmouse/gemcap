@@ -90,6 +90,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     // Track loading jobs per tab for cancellation
     private val loadingJobs = mutableMapOf<String, Job>()
+    private val embeddedMediaLoadingJobs = mutableMapOf<String, Job>()
 
     // Panel state (shared across managers)
     var panelState by mutableStateOf(PanelState())
@@ -234,6 +235,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun closeTab(tabId: String) {
         loadingJobs[tabId]?.cancel()
         loadingJobs.remove(tabId)
+        cancelEmbeddedMediaJobsForTab(tabId)
         tabManager.closeTab(tabId)
     }
 
@@ -667,6 +669,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
         // Cancel any existing loading job for this tab
         loadingJobs[tabId]?.cancel()
+        cancelEmbeddedMediaJobsForTab(tabId)
 
         val job = viewModelScope.launch {
             var targetUrl = currentTab.url.trim()
@@ -1002,10 +1005,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     // Embedded media loading (Lagrange-style!)
     fun loadEmbeddedMedia(itemId: Int) {
         val tab = activeTab ?: return
+        val tabId = tab.id
         val baseDisplayedUrl = tab.displayedUrl.ifBlank { tab.url }
         val media = tab.content.firstOrNull {
             it is GeminiContent.EmbeddedMedia && it.id == itemId
         } as? GeminiContent.EmbeddedMedia ?: return
+        val loadingJobKey = embeddedMediaJobKey(tabId, itemId)
+        cancelEmbeddedMediaLoadingJob(loadingJobKey)
         val resolvedUrl = resolveUrl(media.url, baseDisplayedUrl)
         val certAlias = try {
             val resolvedUri = URI(resolvedUrl)
@@ -1034,65 +1040,74 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             return
         }
  
-        viewModelScope.launch {
-            val markedLoading = updateEmbeddedMedia(
-                tab = tab,
-                itemId = itemId,
-                expectedDisplayedUrl = baseDisplayedUrl,
-                expectedStates = setOf(
-                    GeminiContent.EmbeddedMediaState.COLLAPSED,
-                    GeminiContent.EmbeddedMediaState.ERROR
-                )
-            ) { item ->
-                item.copy(
-                    state = GeminiContent.EmbeddedMediaState.LOADING,
-                    errorMessage = null
-                )
-            }
-            if (!markedLoading) {
-                return@launch
-            }
-            when (val result = fetchEmbeddedMediaWithRedirects(resolvedUrl, certAlias)) {
-                is EmbeddedMediaFetchResult.Success -> {
-                    val response = result.response
-                    val mimeType = response.meta.lowercase().split(";").first().trim()
-                    val data = response.body ?: ByteArray(0)
-                    val resolvedMimeType = mimeType.ifBlank { media.mimeType }
-                    val stableData = StableByteArray(data)
-                    embeddedMediaCache.put(cacheKey, stableData, resolvedMimeType)
-                    updateEmbeddedMedia(
-                        tab = tab,
-                        itemId = itemId,
-                        expectedDisplayedUrl = baseDisplayedUrl,
-                        expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
-                    ) { item ->
-                        item.copy(
-                            state = GeminiContent.EmbeddedMediaState.LOADED,
-                            mimeType = resolvedMimeType,
-                            data = stableData,
-                            errorMessage = null
-                        )
+        val job = viewModelScope.launch {
+            try {
+                val markedLoading = updateEmbeddedMedia(
+                    tab = tab,
+                    itemId = itemId,
+                    expectedDisplayedUrl = baseDisplayedUrl,
+                    expectedStates = setOf(
+                        GeminiContent.EmbeddedMediaState.COLLAPSED,
+                        GeminiContent.EmbeddedMediaState.ERROR
+                    )
+                ) { item ->
+                    item.copy(
+                        state = GeminiContent.EmbeddedMediaState.LOADING,
+                        errorMessage = null
+                    )
+                }
+                if (!markedLoading) {
+                    return@launch
+                }
+                when (val result = fetchEmbeddedMediaWithRedirects(resolvedUrl, certAlias)) {
+                    is EmbeddedMediaFetchResult.Success -> {
+                        val response = result.response
+                        val mimeType = response.meta.lowercase().split(";").first().trim()
+                        val data = response.body ?: ByteArray(0)
+                        val resolvedMimeType = mimeType.ifBlank { media.mimeType }
+                        val stableData = StableByteArray(data)
+                        embeddedMediaCache.put(cacheKey, stableData, resolvedMimeType)
+                        updateEmbeddedMedia(
+                            tab = tab,
+                            itemId = itemId,
+                            expectedDisplayedUrl = baseDisplayedUrl,
+                            expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
+                        ) { item ->
+                            item.copy(
+                                state = GeminiContent.EmbeddedMediaState.LOADED,
+                                mimeType = resolvedMimeType,
+                                data = stableData,
+                                errorMessage = null
+                            )
+                        }
+                    }
+
+                    is EmbeddedMediaFetchResult.Error -> {
+                        updateEmbeddedMedia(
+                            tab = tab,
+                            itemId = itemId,
+                            expectedDisplayedUrl = baseDisplayedUrl,
+                            expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
+                        ) { item ->
+                            item.copy(
+                                state = GeminiContent.EmbeddedMediaState.ERROR,
+                                errorMessage = result.message
+                            )
+                        }
                     }
                 }
-                is EmbeddedMediaFetchResult.Error -> {
-                    updateEmbeddedMedia(
-                        tab = tab,
-                        itemId = itemId,
-                        expectedDisplayedUrl = baseDisplayedUrl,
-                        expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
-                    ) { item ->
-                        item.copy(
-                            state = GeminiContent.EmbeddedMediaState.ERROR,
-                            errorMessage = result.message
-                        )
-                    }
+            } finally {
+                if (embeddedMediaLoadingJobs[loadingJobKey] == coroutineContext[Job]) {
+                    embeddedMediaLoadingJobs.remove(loadingJobKey)
                 }
             }
         }
+        embeddedMediaLoadingJobs[loadingJobKey] = job
     }
 
     fun collapseEmbeddedMedia(itemId: Int) {
         val tab = activeTab ?: return
+        cancelEmbeddedMediaLoadingJob(tab.id, itemId)
         updateEmbeddedMedia(tab, itemId) { item ->
             item.copy(
                 state = GeminiContent.EmbeddedMediaState.COLLAPSED,
@@ -1139,7 +1154,31 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             url
         }
     }
- 
+
+    private fun embeddedMediaJobKey(tabId: String, itemId: Int): String {
+        return "$tabId:$itemId"
+    }
+
+    private fun cancelEmbeddedMediaLoadingJob(tabId: String, itemId: Int) {
+        cancelEmbeddedMediaLoadingJob(embeddedMediaJobKey(tabId, itemId))
+    }
+
+    private fun cancelEmbeddedMediaLoadingJob(jobKey: String) {
+        embeddedMediaLoadingJobs.remove(jobKey)?.cancel()
+    }
+
+    private fun cancelEmbeddedMediaJobsForTab(tabId: String) {
+        val tabPrefix = "$tabId:"
+        val iterator = embeddedMediaLoadingJobs.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            if (entry.key.startsWith(tabPrefix)) {
+                entry.value.cancel()
+                iterator.remove()
+            }
+        }
+    }
+
     private fun buildEmbeddedMediaCacheKey(resolvedUrl: String, certAlias: String?): String {
         return if (certAlias.isNullOrBlank()) {
             resolvedUrl
