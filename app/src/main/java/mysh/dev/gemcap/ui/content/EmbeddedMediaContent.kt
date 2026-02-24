@@ -50,11 +50,13 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.selection.DisableSelection
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import mysh.dev.gemcap.R
 import mysh.dev.gemcap.domain.GeminiContent
 import mysh.dev.gemcap.domain.StableByteArray
 import java.util.Locale
@@ -126,10 +128,10 @@ private fun CollapsedMediaCard(
         ?: item.url.substringAfterLast("/").ifEmpty { item.url }
 
     val actionText = when (mediaType) {
-        MediaType.IMAGE -> "Tap to view image"
-        MediaType.AUDIO -> "Tap to load audio"
-        MediaType.VIDEO -> "Tap to load video"
-        MediaType.UNKNOWN -> "Tap to load file"
+        MediaType.IMAGE -> stringResource(R.string.embedded_media_action_view_image)
+        MediaType.AUDIO -> stringResource(R.string.embedded_media_action_load_audio)
+        MediaType.VIDEO -> stringResource(R.string.embedded_media_action_load_video)
+        MediaType.UNKNOWN -> stringResource(R.string.embedded_media_action_load_file)
     }
 
     Box {
@@ -182,7 +184,7 @@ private fun CollapsedMediaCard(
 
                 Icon(
                     imageVector = Icons.Default.ChevronRight,
-                    contentDescription = "Load media",
+                    contentDescription = stringResource(R.string.embedded_media_load_content_description),
                     modifier = Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -215,7 +217,7 @@ private fun MediaContextMenu(
             onDismissRequest = onDismiss
         ) {
             DropdownMenuItem(
-                text = { Text("Open in new tab") },
+                text = { Text(stringResource(R.string.embedded_media_menu_open_new_tab)) },
                 onClick = {
                     onDismiss()
                     onOpenInNewTab(url)
@@ -225,7 +227,7 @@ private fun MediaContextMenu(
                 }
             )
             DropdownMenuItem(
-                text = { Text("Copy link address") },
+                text = { Text(stringResource(R.string.embedded_media_menu_copy_link)) },
                 onClick = {
                     onDismiss()
                     onCopyLink(url)
@@ -236,7 +238,7 @@ private fun MediaContextMenu(
             )
             onDownload?.let {
                 DropdownMenuItem(
-                    text = { Text("Download") },
+                    text = { Text(stringResource(R.string.embedded_media_menu_download)) },
                     onClick = {
                         onDismiss()
                         it()
@@ -256,6 +258,7 @@ private fun LoadingMediaCard(
     item: GeminiContent.EmbeddedMedia,
     styles: CachedTextStyles
 ) {
+    val mediaLabel = mediaTypeLabel(getMediaType(item.mimeType)).lowercase(Locale.getDefault())
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -279,7 +282,7 @@ private fun LoadingMediaCard(
                 color = styles.primaryColor
             )
             Text(
-                text = "Loading ${getMediaType(item.mimeType).label.lowercase()}...",
+                text = stringResource(R.string.embedded_media_loading, mediaLabel),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -345,8 +348,9 @@ private fun LoadedInlineImage(
 ) {
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
+    val unknownSizeLabel = stringResource(R.string.embedded_media_unknown_size)
     val imageMetadata = remember(item.mimeType, imageData) {
-        buildImageMetadataText(item.mimeType, imageData.bytes)
+        buildImageMetadataText(item.mimeType, imageData.bytes, unknownSizeLabel)
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -370,7 +374,10 @@ private fun LoadedInlineImage(
                         .data(imageData.bytes)
                         .crossfade(true)
                         .build(),
-                    contentDescription = "Image from ${item.url}",
+                    contentDescription = stringResource(
+                        R.string.embedded_media_image_content_description,
+                        item.url
+                    ),
                     modifier = Modifier
                         .widthIn(max = 600.dp)
                         .fillMaxWidth(),
@@ -387,7 +394,7 @@ private fun LoadedInlineImage(
                 onDownload = { onDownloadMedia(item.url, imageData, item.mimeType) },
                 extraItems = {
                     DropdownMenuItem(
-                        text = { Text("Hide image") },
+                        text = { Text(stringResource(R.string.embedded_media_hide_image)) },
                         onClick = {
                             showMenu = false
                             onCollapseMedia(item.id)
@@ -410,6 +417,11 @@ private fun LoadedInlineImage(
 private fun rememberAudioPlayerState(
     itemId: Int,
     audioData: StableByteArray,
+    unableToStartMessage: String,
+    playbackErrorMessage: String,
+    unableToPlayFileMessage: String,
+    unableToPauseMessage: String,
+    unableToRestartMessage: String,
     onPrepared: () -> Unit = {},
     onCompletion: () -> Unit = {},
     onError: (String) -> Unit = {}
@@ -417,6 +429,11 @@ private fun rememberAudioPlayerState(
     return remember(itemId, audioData) {
         AudioPlayerState(
             audioData = audioData,
+            unableToStartMessage = unableToStartMessage,
+            playbackErrorMessage = playbackErrorMessage,
+            unableToPlayFileMessage = unableToPlayFileMessage,
+            unableToPauseMessage = unableToPauseMessage,
+            unableToRestartMessage = unableToRestartMessage,
             onPrepared = onPrepared,
             onCompletion = onCompletion,
             onError = onError
@@ -427,6 +444,11 @@ private fun rememberAudioPlayerState(
 @Stable
 private class AudioPlayerState(
     private val audioData: StableByteArray,
+    private val unableToStartMessage: String,
+    private val playbackErrorMessage: String,
+    private val unableToPlayFileMessage: String,
+    private val unableToPauseMessage: String,
+    private val unableToRestartMessage: String,
     private val onPrepared: () -> Unit,
     private val onCompletion: () -> Unit,
     private val onError: (String) -> Unit
@@ -474,7 +496,7 @@ private class AudioPlayerState(
                     .onSuccess { isPlaying = true }
                     .onFailure { error ->
                         isPlaying = false
-                        val message = error.message ?: "Unable to start audio"
+                        val message = error.message ?: unableToStartMessage
                         playbackError = message
                         onError(message)
                     }
@@ -489,8 +511,8 @@ private class AudioPlayerState(
                 mediaPlayer = null
                 isPreparing = false
                 isPlaying = false
-                playbackError = "Playback error"
-                onError("Playback error")
+                playbackError = playbackErrorMessage
+                onError(playbackErrorMessage)
                 true
             }
             player.setDataSource(ByteArrayMediaDataSource(audioData.bytes))
@@ -502,7 +524,7 @@ private class AudioPlayerState(
             mediaPlayer = null
             isPreparing = false
             isPlaying = false
-            val message = error.message ?: "Unable to play this audio file"
+            val message = error.message ?: unableToPlayFileMessage
             playbackError = message
             onError(message)
         }
@@ -537,7 +559,7 @@ private class AudioPlayerState(
                 playbackError = null
             }
             .onFailure { error ->
-                val message = error.message ?: "Unable to pause audio"
+                val message = error.message ?: unableToPauseMessage
                 playbackError = message
                 onError(message)
             }
@@ -566,7 +588,7 @@ private class AudioPlayerState(
             isPlaying = false
             playbackError = null
         }.onFailure { error ->
-            val message = error.message ?: "Unable to restart audio"
+            val message = error.message ?: unableToRestartMessage
             playbackError = message
             onError(message)
         }
@@ -584,12 +606,25 @@ private fun LoadedAudioMediaCard(
     onDownloadMedia: (String, StableByteArray, String) -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val audioLabel = mediaTypeLabel(MediaType.AUDIO)
+    val playContentDescription = stringResource(R.string.embedded_media_play)
+    val pauseContentDescription = stringResource(R.string.embedded_media_pause)
+    val restartContentDescription = stringResource(R.string.embedded_media_restart)
+    val preparingAudioText = stringResource(R.string.embedded_media_status_preparing_audio)
+    val playingText = stringResource(R.string.embedded_media_status_playing)
+    val pausedText = stringResource(R.string.embedded_media_status_paused)
+    val readyToPlayText = stringResource(R.string.embedded_media_status_ready)
     val audioPlayerState = rememberAudioPlayerState(
         itemId = item.id,
-        audioData = audioData
+        audioData = audioData,
+        unableToStartMessage = stringResource(R.string.embedded_media_error_unable_start_audio),
+        playbackErrorMessage = stringResource(R.string.embedded_media_error_playback),
+        unableToPlayFileMessage = stringResource(R.string.embedded_media_error_unable_play_file),
+        unableToPauseMessage = stringResource(R.string.embedded_media_error_unable_pause_audio),
+        unableToRestartMessage = stringResource(R.string.embedded_media_error_unable_restart_audio)
     )
     val name = item.linkText.takeIf { it.isNotBlank() }
-        ?: item.url.substringAfterLast("/").ifEmpty { "Audio" }
+        ?: item.url.substringAfterLast("/").ifEmpty { audioLabel }
 
     DisposableEffect(item.id, item.data) {
         onDispose {
@@ -599,10 +634,10 @@ private fun LoadedAudioMediaCard(
 
     val statusText = when {
         audioPlayerState.playbackError != null -> audioPlayerState.playbackError!!
-        audioPlayerState.isPreparing -> "Preparing audio..."
-        audioPlayerState.isPlaying -> "Playing"
-        audioPlayerState.mediaPlayer != null -> "Paused"
-        else -> "Ready to play"
+        audioPlayerState.isPreparing -> preparingAudioText
+        audioPlayerState.isPlaying -> playingText
+        audioPlayerState.mediaPlayer != null -> pausedText
+        else -> readyToPlayText
     }
 
     Box {
@@ -670,7 +705,11 @@ private fun LoadedAudioMediaCard(
                             } else {
                                 Icons.Default.PlayArrow
                             },
-                            contentDescription = if (audioPlayerState.isPlaying) "Pause" else "Play"
+                            contentDescription = if (audioPlayerState.isPlaying) {
+                                pauseContentDescription
+                            } else {
+                                playContentDescription
+                            }
                         )
                     }
                     IconButton(
@@ -679,7 +718,7 @@ private fun LoadedAudioMediaCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Replay,
-                            contentDescription = "Restart"
+                            contentDescription = restartContentDescription
                         )
                     }
                 }
@@ -695,7 +734,7 @@ private fun LoadedAudioMediaCard(
             onDownload = { onDownloadMedia(item.url, audioData, item.mimeType) },
             extraItems = {
                 DropdownMenuItem(
-                    text = { Text("Hide audio") },
+                    text = { Text(stringResource(R.string.embedded_media_hide_audio)) },
                     onClick = {
                         showMenu = false
                         onCollapseMedia(item.id)
@@ -718,6 +757,7 @@ private fun LoadedBinaryMediaCard(
     onDownloadMedia: (String, StableByteArray, String) -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val mediaLabel = mediaTypeLabel(mediaType)
     val icon = when (mediaType) {
         MediaType.AUDIO -> Icons.Default.MusicNote
         MediaType.VIDEO -> Icons.Default.PlayCircle
@@ -725,7 +765,7 @@ private fun LoadedBinaryMediaCard(
         MediaType.IMAGE -> Icons.Default.Image
     }
     val name = item.linkText.takeIf { it.isNotBlank() }
-        ?: item.url.substringAfterLast("/").ifEmpty { mediaType.label }
+        ?: item.url.substringAfterLast("/").ifEmpty { mediaLabel }
 
     Box {
         Box(
@@ -763,7 +803,11 @@ private fun LoadedBinaryMediaCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "${mediaType.label} loaded (${formatBytes(data.bytes.size)})",
+                        text = stringResource(
+                            R.string.embedded_media_loaded_format,
+                            mediaLabel,
+                            formatBytes(data.bytes.size)
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -780,7 +824,14 @@ private fun LoadedBinaryMediaCard(
             onDownload = { onDownloadMedia(item.url, data, item.mimeType) },
             extraItems = {
                 DropdownMenuItem(
-                    text = { Text("Hide ${mediaType.label.lowercase()}") },
+                    text = {
+                        Text(
+                            stringResource(
+                                R.string.embedded_media_hide_media,
+                                mediaLabel.lowercase(Locale.getDefault())
+                            )
+                        )
+                    },
                     onClick = {
                         showMenu = false
                         onCollapseMedia(item.id)
@@ -796,6 +847,7 @@ private fun ErrorMediaCard(
     item: GeminiContent.EmbeddedMedia,
     onRetryClick: () -> Unit
 ) {
+    val mediaLabel = mediaTypeLabel(getMediaType(item.mimeType)).lowercase(Locale.getDefault())
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -816,13 +868,13 @@ private fun ErrorMediaCard(
         ) {
             Icon(
                 imageVector = Icons.Default.BrokenImage,
-                contentDescription = "Load error",
+                contentDescription = stringResource(R.string.embedded_media_load_error_content_description),
                 modifier = Modifier.size(24.dp),
                 tint = MaterialTheme.colorScheme.error
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Failed to load ${getMediaType(item.mimeType).label.lowercase()}",
+                    text = stringResource(R.string.embedded_media_failed_to_load, mediaLabel),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error
                 )
@@ -834,7 +886,7 @@ private fun ErrorMediaCard(
                     )
                 }
                 Text(
-                    text = "Tap to retry",
+                    text = stringResource(R.string.embedded_media_tap_to_retry),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -843,11 +895,21 @@ private fun ErrorMediaCard(
     }
 }
 
-private enum class MediaType(val label: String) {
-    IMAGE("Image"),
-    AUDIO("Audio"),
-    VIDEO("Video"),
-    UNKNOWN("File")
+private enum class MediaType {
+    IMAGE,
+    AUDIO,
+    VIDEO,
+    UNKNOWN
+}
+
+@Composable
+private fun mediaTypeLabel(mediaType: MediaType): String {
+    return when (mediaType) {
+        MediaType.IMAGE -> stringResource(R.string.embedded_media_type_image)
+        MediaType.AUDIO -> stringResource(R.string.embedded_media_type_audio)
+        MediaType.VIDEO -> stringResource(R.string.embedded_media_type_video)
+        MediaType.UNKNOWN -> stringResource(R.string.embedded_media_type_file)
+    }
 }
 
 private fun getMediaType(mimeType: String): MediaType {
@@ -859,9 +921,13 @@ private fun getMediaType(mimeType: String): MediaType {
     }
 }
 
-private fun buildImageMetadataText(mimeType: String, imageData: ByteArray): String {
+private fun buildImageMetadataText(
+    mimeType: String,
+    imageData: ByteArray,
+    unknownSizeLabel: String
+): String {
     val dimensions = extractImageDimensions(imageData)
-    val dimensionsText = dimensions?.let { "${it.first} x ${it.second}" } ?: "unknown size"
+    val dimensionsText = dimensions?.let { "${it.first} x ${it.second}" } ?: unknownSizeLabel
     return "$mimeType - $dimensionsText - ${formatBytes(imageData.size)}"
 }
 
