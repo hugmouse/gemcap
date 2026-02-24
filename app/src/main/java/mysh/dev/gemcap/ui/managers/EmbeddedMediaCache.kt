@@ -70,6 +70,7 @@ class EmbeddedMediaCache(
         }
     }
  
+    @Synchronized
     private fun removeInternal(key: String, entry: Entry) {
         if (cache.remove(key) != null) {
             totalBytes -= entry.sizeBytes
