@@ -583,9 +583,9 @@ private class AudioPlayerState(
         }
 
         runCatching {
-            player.pause()
             player.seekTo(0)
-            isPlaying = false
+            player.start()
+            isPlaying = true
             playbackError = null
         }.onFailure { error ->
             val message = error.message ?: unableToRestartMessage
@@ -779,7 +779,7 @@ private fun LoadedBinaryMediaCard(
                     shape = RoundedCornerShape(8.dp)
                 )
                 .combinedClickable(
-                    onClick = { },
+                    onClick = { onCollapseMedia(item.id) },
                     onLongClick = { showMenu = true }
                 )
                 .padding(16.dp)
