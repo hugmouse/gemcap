@@ -39,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -313,6 +314,7 @@ private fun LoadedMediaCard(
         LoadedAudioMediaCard(
             item = item,
             audioData = data,
+            onCollapseMedia = onCollapseMedia,
             onOpenInNewTab = onOpenInNewTab,
             onCopyLink = onCopyLink,
             onDownloadMedia = onDownloadMedia
@@ -324,6 +326,7 @@ private fun LoadedMediaCard(
         item = item,
         mediaType = mediaType,
         data = data,
+        onCollapseMedia = onCollapseMedia,
         onOpenInNewTab = onOpenInNewTab,
         onCopyLink = onCopyLink,
         onDownloadMedia = onDownloadMedia
@@ -404,20 +407,40 @@ private fun LoadedInlineImage(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun LoadedAudioMediaCard(
-    item: GeminiContent.EmbeddedMedia,
+private fun rememberAudioPlayerState(
+    itemId: Int,
     audioData: StableByteArray,
-    onOpenInNewTab: (String) -> Unit,
-    onCopyLink: (String) -> Unit,
-    onDownloadMedia: (String, StableByteArray, String) -> Unit
+    onPrepared: () -> Unit = {},
+    onCompletion: () -> Unit = {},
+    onError: (String) -> Unit = {}
+): AudioPlayerState {
+    return remember(itemId, audioData) {
+        AudioPlayerState(
+            audioData = audioData,
+            onPrepared = onPrepared,
+            onCompletion = onCompletion,
+            onError = onError
+        )
+    }
+}
+
+@Stable
+private class AudioPlayerState(
+    private val audioData: StableByteArray,
+    private val onPrepared: () -> Unit,
+    private val onCompletion: () -> Unit,
+    private val onError: (String) -> Unit
 ) {
-    var showMenu by remember { mutableStateOf(false) }
-    var mediaPlayer by remember(item.id, item.data) { mutableStateOf<MediaPlayer?>(null) }
-    var isPreparing by remember(item.id, item.data) { mutableStateOf(false) }
-    var isPlaying by remember(item.id, item.data) { mutableStateOf(false) }
-    var playbackError by remember(item.id, item.data) { mutableStateOf<String?>(null) }
-    val name = item.linkText.takeIf { it.isNotBlank() }
-        ?: item.url.substringAfterLast("/").ifEmpty { "Audio" }
+    var mediaPlayer by mutableStateOf<MediaPlayer?>(null)
+        private set
+    var isPreparing by mutableStateOf(false)
+        private set
+    var isPlaying by mutableStateOf(false)
+        private set
+    var playbackError by mutableStateOf<String?>(null)
+        private set
+
+    fun release() = releasePlayer()
 
     fun releasePlayer() {
         val player = mediaPlayer ?: return
@@ -446,15 +469,19 @@ private fun LoadedAudioMediaCard(
             player.setOnPreparedListener { preparedPlayer ->
                 isPreparing = false
                 playbackError = null
+                onPrepared()
                 runCatching { preparedPlayer.start() }
                     .onSuccess { isPlaying = true }
                     .onFailure { error ->
                         isPlaying = false
-                        playbackError = error.message ?: "Unable to start audio"
+                        val message = error.message ?: "Unable to start audio"
+                        playbackError = message
+                        onError(message)
                     }
             }
             player.setOnCompletionListener { completedPlayer ->
                 isPlaying = false
+                onCompletion()
                 runCatching { completedPlayer.seekTo(0) }
             }
             player.setOnErrorListener { failedPlayer, _, _ ->
@@ -463,6 +490,7 @@ private fun LoadedAudioMediaCard(
                 isPreparing = false
                 isPlaying = false
                 playbackError = "Playback error"
+                onError("Playback error")
                 true
             }
             player.setDataSource(ByteArrayMediaDataSource(audioData.bytes))
@@ -474,28 +502,18 @@ private fun LoadedAudioMediaCard(
             mediaPlayer = null
             isPreparing = false
             isPlaying = false
-            playbackError = error.message ?: "Unable to play this audio file"
+            val message = error.message ?: "Unable to play this audio file"
+            playbackError = message
+            onError(message)
         }
     }
 
-    fun togglePlayback() {
+    fun start() {
         if (isPreparing) return
 
         val player = mediaPlayer
         if (player == null) {
             prepareAndStartPlayer()
-            return
-        }
-
-        if (isPlaying) {
-            runCatching { player.pause() }
-                .onSuccess {
-                    isPlaying = false
-                    playbackError = null
-                }
-                .onFailure { error ->
-                    playbackError = error.message ?: "Unable to pause audio"
-                }
             return
         }
 
@@ -507,6 +525,30 @@ private fun LoadedAudioMediaCard(
             .onFailure {
                 prepareAndStartPlayer()
             }
+    }
+
+    fun stop() {
+        if (isPreparing) return
+
+        val player = mediaPlayer ?: return
+        runCatching { player.pause() }
+            .onSuccess {
+                isPlaying = false
+                playbackError = null
+            }
+            .onFailure { error ->
+                val message = error.message ?: "Unable to pause audio"
+                playbackError = message
+                onError(message)
+            }
+    }
+
+    fun togglePlayback() {
+        if (isPlaying) {
+            stop()
+        } else {
+            start()
+        }
     }
 
     fun restartPlayback() {
@@ -524,32 +566,42 @@ private fun LoadedAudioMediaCard(
             isPlaying = false
             playbackError = null
         }.onFailure { error ->
-            playbackError = error.message ?: "Unable to restart audio"
+            val message = error.message ?: "Unable to restart audio"
+            playbackError = message
+            onError(message)
         }
     }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun LoadedAudioMediaCard(
+    item: GeminiContent.EmbeddedMedia,
+    audioData: StableByteArray,
+    onCollapseMedia: (Int) -> Unit,
+    onOpenInNewTab: (String) -> Unit,
+    onCopyLink: (String) -> Unit,
+    onDownloadMedia: (String, StableByteArray, String) -> Unit
+) {
+    var showMenu by remember { mutableStateOf(false) }
+    val audioPlayerState = rememberAudioPlayerState(
+        itemId = item.id,
+        audioData = audioData
+    )
+    val name = item.linkText.takeIf { it.isNotBlank() }
+        ?: item.url.substringAfterLast("/").ifEmpty { "Audio" }
 
     DisposableEffect(item.id, item.data) {
         onDispose {
-            val capturedPlayer = mediaPlayer
-            runCatching {
-                capturedPlayer?.setOnPreparedListener(null)
-                capturedPlayer?.setOnCompletionListener(null)
-                capturedPlayer?.setOnErrorListener(null)
-                capturedPlayer?.release()
-            }
-            if (mediaPlayer === capturedPlayer) {
-                mediaPlayer = null
-            }
-            isPreparing = false
-            isPlaying = false
+            audioPlayerState.release()
         }
     }
 
     val statusText = when {
-        playbackError != null -> playbackError!!
-        isPreparing -> "Preparing audio..."
-        isPlaying -> "Playing"
-        mediaPlayer != null -> "Paused"
+        audioPlayerState.playbackError != null -> audioPlayerState.playbackError!!
+        audioPlayerState.isPreparing -> "Preparing audio..."
+        audioPlayerState.isPlaying -> "Playing"
+        audioPlayerState.mediaPlayer != null -> "Paused"
         else -> "Ready to play"
     }
 
@@ -565,7 +617,7 @@ private fun LoadedAudioMediaCard(
                     shape = RoundedCornerShape(8.dp)
                 )
                 .combinedClickable(
-                    onClick = { togglePlayback() },
+                    onClick = { audioPlayerState.togglePlayback() },
                     onLongClick = { showMenu = true }
                 )
                 .padding(16.dp)
@@ -596,7 +648,7 @@ private fun LoadedAudioMediaCard(
                     Text(
                         text = statusText,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (playbackError != null) {
+                        color = if (audioPlayerState.playbackError != null) {
                             MaterialTheme.colorScheme.error
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
@@ -609,21 +661,21 @@ private fun LoadedAudioMediaCard(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     IconButton(
-                        onClick = { togglePlayback() },
-                        enabled = !isPreparing
+                        onClick = { audioPlayerState.togglePlayback() },
+                        enabled = !audioPlayerState.isPreparing
                     ) {
                         Icon(
-                            imageVector = if (isPlaying) {
+                            imageVector = if (audioPlayerState.isPlaying) {
                                 Icons.Default.Pause
                             } else {
                                 Icons.Default.PlayArrow
                             },
-                            contentDescription = if (isPlaying) "Pause" else "Play"
+                            contentDescription = if (audioPlayerState.isPlaying) "Pause" else "Play"
                         )
                     }
                     IconButton(
-                        onClick = { restartPlayback() },
-                        enabled = !isPreparing
+                        onClick = { audioPlayerState.restartPlayback() },
+                        enabled = !audioPlayerState.isPreparing
                     ) {
                         Icon(
                             imageVector = Icons.Default.Replay,
@@ -640,7 +692,16 @@ private fun LoadedAudioMediaCard(
             url = item.url,
             onOpenInNewTab = onOpenInNewTab,
             onCopyLink = onCopyLink,
-            onDownload = { onDownloadMedia(item.url, audioData, item.mimeType) }
+            onDownload = { onDownloadMedia(item.url, audioData, item.mimeType) },
+            extraItems = {
+                DropdownMenuItem(
+                    text = { Text("Hide audio") },
+                    onClick = {
+                        showMenu = false
+                        onCollapseMedia(item.id)
+                    }
+                )
+            }
         )
     }
 }
@@ -651,6 +712,7 @@ private fun LoadedBinaryMediaCard(
     item: GeminiContent.EmbeddedMedia,
     mediaType: MediaType,
     data: StableByteArray,
+    onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
     onDownloadMedia: (String, StableByteArray, String) -> Unit
@@ -715,7 +777,16 @@ private fun LoadedBinaryMediaCard(
             url = item.url,
             onOpenInNewTab = onOpenInNewTab,
             onCopyLink = onCopyLink,
-            onDownload = { onDownloadMedia(item.url, data, item.mimeType) }
+            onDownload = { onDownloadMedia(item.url, data, item.mimeType) },
+            extraItems = {
+                DropdownMenuItem(
+                    text = { Text("Hide ${mediaType.label.lowercase()}") },
+                    onClick = {
+                        showMenu = false
+                        onCollapseMedia(item.id)
+                    }
+                )
+            }
         )
     }
 }
