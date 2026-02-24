@@ -1227,6 +1227,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         certAlias: String?,
         maxRedirects: Int = 5
     ): EmbeddedMediaFetchResult {
+        val app = getApplication<Application>()
         return followRedirects(
             initialUrl = initialUrl,
             certAlias = certAlias,
@@ -1250,23 +1251,35 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                             }
 
                             in 10..19 -> {
-                                val prompt = response.meta.ifBlank { "No prompt provided" }
+                                val prompt = response.meta.ifBlank {
+                                    app.getString(R.string.embedded_media_error_no_prompt)
+                                }
                                 RedirectLoopResult.Complete(
-                                    EmbeddedMediaFetchResult.Error("Input required: $prompt")
+                                    EmbeddedMediaFetchResult.Error(
+                                        app.getString(R.string.embedded_media_error_input_required, prompt)
+                                    )
                                 )
                             }
 
                             44 -> {
-                                val meta = response.meta.ifBlank { "No retry hint provided" }
+                                val meta = response.meta.ifBlank {
+                                    app.getString(R.string.embedded_media_error_no_retry_hint)
+                                }
                                 RedirectLoopResult.Complete(
-                                    EmbeddedMediaFetchResult.Error("Server asked to slow down: $meta")
+                                    EmbeddedMediaFetchResult.Error(
+                                        app.getString(R.string.embedded_media_error_slow_down, meta)
+                                    )
                                 )
                             }
 
                             in 40..49 -> {
                                 RedirectLoopResult.Complete(
                                     EmbeddedMediaFetchResult.Error(
-                                        "Temporary failure ${response.status}: ${response.meta}"
+                                        app.getString(
+                                            R.string.embedded_media_error_temporary_failure,
+                                            response.status,
+                                            response.meta
+                                        )
                                     )
                                 )
                             }
@@ -1274,16 +1287,26 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                             in 50..59 -> {
                                 RedirectLoopResult.Complete(
                                     EmbeddedMediaFetchResult.Error(
-                                        "Permanent failure ${response.status}: ${response.meta}"
+                                        app.getString(
+                                            R.string.embedded_media_error_permanent_failure,
+                                            response.status,
+                                            response.meta
+                                        )
                                     )
                                 )
                             }
 
                             else -> {
-                                val meta = response.meta.ifBlank { "Unknown status" }
+                                val meta = response.meta.ifBlank {
+                                    app.getString(R.string.embedded_media_error_unknown_status)
+                                }
                                 RedirectLoopResult.Complete(
                                     EmbeddedMediaFetchResult.Error(
-                                        "Unexpected Gemini status ${response.status}: $meta"
+                                        app.getString(
+                                            R.string.embedded_media_error_unexpected_status,
+                                            response.status,
+                                            meta
+                                        )
                                     )
                                 )
                             }
@@ -1301,7 +1324,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 EmbeddedMediaFetchResult.Error(message)
             },
             onTooManyRedirects = { redirectLimit ->
-                EmbeddedMediaFetchResult.Error("Too many redirects (max $redirectLimit)")
+                EmbeddedMediaFetchResult.Error(
+                    app.getString(R.string.embedded_media_error_too_many_redirects, redirectLimit)
+                )
             }
         )
     }
