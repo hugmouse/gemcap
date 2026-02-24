@@ -21,7 +21,7 @@ object GeminiParser {
         "aac" to "audio/aac",
         "m4a" to "audio/mp4",
         "opus" to "audio/opus",
-        "webm" to "audio/webm",
+        "webm" to "video/webm",
         "mp4" to "video/mp4",
         "ogv" to "video/ogg",
         "avi" to "video/x-msvideo",
@@ -157,7 +157,7 @@ object GeminiParser {
         if (!isGeminiOrRelativeUrl(url)) {
             return null
         }
-        val pathWithoutQuery = url.substringBefore("?")
+        val pathWithoutQuery = url.substringBefore("?").substringBefore("#")
         val extension = pathWithoutQuery.substringAfterLast(".", "").lowercase()
         return mediaExtensionToMime[extension]
     }
