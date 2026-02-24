@@ -6,6 +6,7 @@ import java.net.Socket
 import java.security.Principal
 import java.security.PrivateKey
 import java.security.cert.X509Certificate
+import java.util.Locale
 import javax.net.ssl.X509KeyManager
 
 private const val TAG = "SelectiveKeyManager"
@@ -34,7 +35,10 @@ class SelectiveKeyManager(
         keyType: String?,
         issuers: Array<out Principal>?
     ): Array<String>? {
-        val selectedAlias = selectedAliasOrNull() ?: return null
+        val selectedAlias = selectedAliasMatching(
+            keyTypes = keyType?.let { arrayOf(it) },
+            issuers = issuers
+        ) ?: return null
         return arrayOf(selectedAlias)
     }
 
@@ -43,7 +47,7 @@ class SelectiveKeyManager(
         issuers: Array<out Principal>?,
         socket: Socket?
     ): String? {
-        val selectedAlias = selectedAliasOrNull()
+        val selectedAlias = selectedAliasMatching(keyTypes, issuers)
         Log.d(TAG, "chooseClientAlias called, returning: $selectedAlias")
         return selectedAlias
     }
@@ -73,5 +77,54 @@ class SelectiveKeyManager(
     override fun getPrivateKey(alias: String?): PrivateKey? {
         if (alias == null) return null
         return keyStore.getPrivateKey(alias)
+    }
+
+    private fun selectedAliasMatching(
+        keyTypes: Array<out String>?,
+        issuers: Array<out Principal>?
+    ): String? {
+        val selectedAlias = selectedAliasOrNull() ?: return null
+        val leafCertificate = keyStore.getCertificateChain(selectedAlias)
+            ?.firstOrNull()
+            ?: return null
+
+        if (!matchesAnyKeyType(leafCertificate, keyTypes)) {
+            return null
+        }
+        if (!matchesIssuers(leafCertificate, issuers)) {
+            return null
+        }
+        return selectedAlias
+    }
+
+    private fun matchesAnyKeyType(
+        certificate: X509Certificate,
+        keyTypes: Array<out String>?
+    ): Boolean {
+        if (keyTypes.isNullOrEmpty()) {
+            return true
+        }
+        val certAlgorithm = normalizeKeyType(certificate.publicKey.algorithm)
+        return keyTypes.any { normalizeKeyType(it) == certAlgorithm }
+    }
+
+    private fun matchesIssuers(
+        certificate: X509Certificate,
+        issuers: Array<out Principal>?
+    ): Boolean {
+        if (issuers.isNullOrEmpty()) {
+            return true
+        }
+        val issuerPrincipal = certificate.issuerX500Principal
+        return issuers.any { it == issuerPrincipal || it.name == issuerPrincipal.name }
+    }
+
+    private fun normalizeKeyType(keyType: String): String {
+        return when (keyType.uppercase(Locale.US)) {
+            "RSA" -> "RSA"
+            "EC", "ECDSA" -> "EC"
+            "DSA" -> "DSA"
+            else -> keyType.uppercase(Locale.US)
+        }
     }
 }
