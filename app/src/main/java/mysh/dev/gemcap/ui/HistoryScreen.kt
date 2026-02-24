@@ -36,8 +36,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import mysh.dev.gemcap.R
 import kotlinx.collections.immutable.ImmutableList
 import mysh.dev.gemcap.domain.HistoryEntry
 import java.text.SimpleDateFormat
@@ -85,17 +87,25 @@ fun HistoryScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "History",
+                        text = stringResource(R.string.history_title),
                         style = MaterialTheme.typography.titleMedium
                     )
                     Row {
                         if (history.isNotEmpty()) {
                             IconButton(onClick = { showClearConfirmation = true }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Clear history")
+                                Icon(
+                                    Icons.Default.Delete,
+                                    contentDescription = stringResource(
+                                        R.string.clear_history_content_description
+                                    )
+                                )
                             }
                         }
                         IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.Close, contentDescription = "Close")
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = stringResource(R.string.history_close_content_description)
+                            )
                         }
                     }
                 }
@@ -113,7 +123,7 @@ fun HistoryScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "No history yet",
+                        text = stringResource(R.string.history_empty_text),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -141,8 +151,8 @@ fun HistoryScreen(
     if (showClearConfirmation) {
         AlertDialog(
             onDismissRequest = { showClearConfirmation = false },
-            title = { Text("Clear History") },
-            text = { Text("Are you sure you want to clear all browsing history?") },
+            title = { Text(stringResource(R.string.clear_history_label)) },
+            text = { Text(stringResource(R.string.clear_history_confirm)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -150,12 +160,12 @@ fun HistoryScreen(
                         showClearConfirmation = false
                     }
                 ) {
-                    Text("Clear")
+                    Text(stringResource(R.string.clear_button))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showClearConfirmation = false }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.cancel_button))
                 }
             }
         )
@@ -201,6 +211,7 @@ private fun HistoryItem(
     }
 }
 
+@Composable
 private fun formatRelativeTime(timestamp: Long): String {
     val now = System.currentTimeMillis()
     val diff = now - timestamp
@@ -210,9 +221,9 @@ private fun formatRelativeTime(timestamp: Long): String {
     val days = TimeUnit.MILLISECONDS.toDays(diff)
 
     return when {
-        minutes < 1 -> "Just now"
-        minutes < 60 -> "${minutes}m ago"
-        hours < 24 -> "${hours}h ago"
+        minutes < 1 -> stringResource(R.string.history_time_just_now)
+        minutes < 60 -> stringResource(R.string.history_time_minutes_ago, minutes)
+        hours < 24 -> stringResource(R.string.history_time_hours_ago, hours)
         days < 7 -> {
             val dayFormat = SimpleDateFormat("EEE", Locale.getDefault())
             dayFormat.format(Date(timestamp))
