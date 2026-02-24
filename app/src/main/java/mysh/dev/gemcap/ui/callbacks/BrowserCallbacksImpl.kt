@@ -9,6 +9,7 @@ import mysh.dev.gemcap.domain.Bookmark
 import mysh.dev.gemcap.domain.ClientCertificate
 import mysh.dev.gemcap.domain.HistoryEntry
 import mysh.dev.gemcap.domain.IdentityUsage
+import mysh.dev.gemcap.domain.StableByteArray
 import mysh.dev.gemcap.network.IdentityParams
 import mysh.dev.gemcap.ui.BrowserViewModel
 
@@ -131,6 +132,6 @@ class BrowserCallbacksImpl(
     override fun onCopyLink(url: String) = viewModel.copyLinkToClipboard(url)
     override fun onLoadEmbeddedMedia(itemId: Int) = viewModel.loadEmbeddedMedia(itemId)
     override fun onCollapseEmbeddedMedia(itemId: Int) = viewModel.collapseEmbeddedMedia(itemId)
-    override fun onDownloadEmbeddedMedia(url: String, data: ByteArray, mimeType: String) =
+    override fun onDownloadEmbeddedMedia(url: String, data: StableByteArray, mimeType: String) =
         viewModel.downloadEmbeddedMedia(url, data, mimeType)
 }
