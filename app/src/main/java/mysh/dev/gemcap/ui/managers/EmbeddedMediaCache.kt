@@ -7,7 +7,7 @@ class EmbeddedMediaCache(
     private val ttlMillis: Long,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
-    data class Entry(
+    class Entry(
         val data: StableByteArray,
         val mimeType: String,
         var lastAccessMillis: Long,
@@ -51,7 +51,8 @@ class EmbeddedMediaCache(
         cache.clear()
         totalBytes = 0
     }
- 
+
+    @Synchronized
     private fun prune(now: Long) {
         val iterator = cache.entries.iterator()
         while (iterator.hasNext()) {
