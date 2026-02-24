@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -213,6 +214,12 @@ private fun HistoryItem(
 
 @Composable
 private fun formatRelativeTime(timestamp: Long): String {
+    val configuration = LocalConfiguration.current
+    val locale = configuration.locales[0] ?: Locale.getDefault()
+    val dayFormat = remember(locale) { SimpleDateFormat("EEE", locale) }
+    val monthDayFormat = remember(locale) { SimpleDateFormat("MMM d", locale) }
+    val monthDayYearFormat = remember(locale) { SimpleDateFormat("MMM d, yyyy", locale) }
+
     val now = System.currentTimeMillis()
     val diff = now - timestamp
 
@@ -224,10 +231,7 @@ private fun formatRelativeTime(timestamp: Long): String {
         minutes < 1 -> stringResource(R.string.history_time_just_now)
         minutes < 60 -> stringResource(R.string.history_time_minutes_ago, minutes)
         hours < 24 -> stringResource(R.string.history_time_hours_ago, hours)
-        days < 7 -> {
-            val dayFormat = SimpleDateFormat("EEE", Locale.getDefault())
-            dayFormat.format(Date(timestamp))
-        }
+        days < 7 -> dayFormat.format(Date(timestamp))
 
         else -> {
             val calendar = Calendar.getInstance()
@@ -236,9 +240,9 @@ private fun formatRelativeTime(timestamp: Long): String {
             val timestampYear = calendar.get(Calendar.YEAR)
 
             if (timestampYear == currentYear) {
-                SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(timestamp))
+                monthDayFormat.format(Date(timestamp))
             } else {
-                SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(timestamp))
+                monthDayYearFormat.format(Date(timestamp))
             }
         }
     }
