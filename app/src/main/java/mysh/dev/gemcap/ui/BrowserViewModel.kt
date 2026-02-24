@@ -19,6 +19,7 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -64,6 +65,7 @@ import mysh.dev.gemcap.ui.model.SettingsState
 import mysh.dev.gemcap.ui.model.TabState
 import mysh.dev.gemcap.util.DownloadUtils
 import java.net.URI
+import java.net.URISyntaxException
 import java.net.URLEncoder
 
 // Don't you love when one view model literally controls everything?
@@ -204,6 +206,11 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         data class Error(val message: String) : EmbeddedMediaFetchResult()
     }
 
+    private sealed class RedirectLoopResult<out T> {
+        data class Complete<T>(val value: T) : RedirectLoopResult<T>()
+        data class Redirect(val statusCode: Int, val targetUrl: String) : RedirectLoopResult<Nothing>()
+    }
+
     init {
         tabManager.initialize()
         bookmarkManager.refresh()
@@ -335,151 +342,180 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         maxRedirects: Int = 5,
         certAlias: String? = null
     ): FetchResult {
-        var currentUrl = initialUrl
-        var redirectCount = 0
-
-        while (redirectCount < maxRedirects) {
-            when (val fetchResult = client.fetch(currentUrl, certAlias)) {
-                is GeminiFetchResult.Error -> {
-                    return FetchResult.Error(
-                        GeminiError(
-                            statusCode = 0,
-                            message = fetchResult.exception.message ?: "Connection error",
-                            isTemporary = true,
-                            canRetry = true
-                        )
-                    )
-                }
-
-                is GeminiFetchResult.TofuWarning -> {
-                    return FetchResult.TofuWarning(
-                        TofuWarningState(
-                            host = fetchResult.host,
-                            port = fetchResult.port,
-                            oldFingerprint = fetchResult.oldFingerprint,
-                            newFingerprint = fetchResult.newFingerprint,
-                            newExpiry = fetchResult.newExpiry,
-                            isCATrusted = fetchResult.isCATrusted,
-                            pendingUrl = fetchResult.pendingUrl
-                        )
-                    )
-                }
-
-                is GeminiFetchResult.TofuDomainMismatch -> {
-                    return FetchResult.TofuDomainMismatch(
-                        host = fetchResult.host,
-                        certDomains = fetchResult.certDomains,
-                        pendingUrl = fetchResult.pendingUrl
-                    )
-                }
-
-                is GeminiFetchResult.TofuExpired -> {
-                    return FetchResult.TofuExpired(
-                        host = fetchResult.host,
-                        expiredAt = fetchResult.expiredAt,
-                        pendingUrl = fetchResult.pendingUrl
-                    )
-                }
-
-                is GeminiFetchResult.TofuNotYetValid -> {
-                    return FetchResult.TofuNotYetValid(
-                        host = fetchResult.host,
-                        notBefore = fetchResult.notBefore,
-                        pendingUrl = fetchResult.pendingUrl
-                    )
-                }
-
-                is GeminiFetchResult.CertificateRequired -> {
-                    return FetchResult.CertificateRequired(
-                        statusCode = fetchResult.statusCode,
-                        meta = fetchResult.meta,
-                        url = fetchResult.url
-                    )
-                }
-
-                is GeminiFetchResult.Success -> {
-                    val response = fetchResult.response
-                    when (response.status) {
-                        in 10..19 -> {
-                            return FetchResult.InputRequired(
-                                promptText = response.meta,
-                                targetUrl = currentUrl,
-                                isSensitive = response.status == 11
+        return followRedirects(
+            initialUrl = initialUrl,
+            certAlias = certAlias,
+            maxRedirects = maxRedirects,
+            mapResult = { fetchResult, currentUrl ->
+                when (fetchResult) {
+                    is GeminiFetchResult.Error -> {
+                        RedirectLoopResult.Complete(
+                            FetchResult.Error(
+                                GeminiError(
+                                    statusCode = 0,
+                                    message = fetchResult.exception.message ?: "Connection error",
+                                    isTemporary = true,
+                                    canRetry = true
+                                )
                             )
-                        }
+                        )
+                    }
 
-                        in 30..39 -> {
-                            val targetUrl = response.meta
-                            if (targetUrl.isBlank()) {
-                                return FetchResult.Error(
-                                    GeminiError(
-                                        statusCode = response.status,
-                                        message = "Empty redirect target",
-                                        isTemporary = true,
-                                        canRetry = false
+                    is GeminiFetchResult.TofuWarning -> {
+                        RedirectLoopResult.Complete(
+                            FetchResult.TofuWarning(
+                                TofuWarningState(
+                                    host = fetchResult.host,
+                                    port = fetchResult.port,
+                                    oldFingerprint = fetchResult.oldFingerprint,
+                                    newFingerprint = fetchResult.newFingerprint,
+                                    newExpiry = fetchResult.newExpiry,
+                                    isCATrusted = fetchResult.isCATrusted,
+                                    pendingUrl = fetchResult.pendingUrl
+                                )
+                            )
+                        )
+                    }
+
+                    is GeminiFetchResult.TofuDomainMismatch -> {
+                        RedirectLoopResult.Complete(
+                            FetchResult.TofuDomainMismatch(
+                                host = fetchResult.host,
+                                certDomains = fetchResult.certDomains,
+                                pendingUrl = fetchResult.pendingUrl
+                            )
+                        )
+                    }
+
+                    is GeminiFetchResult.TofuExpired -> {
+                        RedirectLoopResult.Complete(
+                            FetchResult.TofuExpired(
+                                host = fetchResult.host,
+                                expiredAt = fetchResult.expiredAt,
+                                pendingUrl = fetchResult.pendingUrl
+                            )
+                        )
+                    }
+
+                    is GeminiFetchResult.TofuNotYetValid -> {
+                        RedirectLoopResult.Complete(
+                            FetchResult.TofuNotYetValid(
+                                host = fetchResult.host,
+                                notBefore = fetchResult.notBefore,
+                                pendingUrl = fetchResult.pendingUrl
+                            )
+                        )
+                    }
+
+                    is GeminiFetchResult.CertificateRequired -> {
+                        RedirectLoopResult.Complete(
+                            FetchResult.CertificateRequired(
+                                statusCode = fetchResult.statusCode,
+                                meta = fetchResult.meta,
+                                url = fetchResult.url
+                            )
+                        )
+                    }
+
+                    is GeminiFetchResult.Success -> {
+                        val response = fetchResult.response
+                        when (response.status) {
+                            in 10..19 -> {
+                                RedirectLoopResult.Complete(
+                                    FetchResult.InputRequired(
+                                        promptText = response.meta,
+                                        targetUrl = currentUrl,
+                                        isSensitive = response.status == 11
                                     )
                                 )
                             }
-                            currentUrl = URI(currentUrl).resolve(targetUrl).toString()
-                            redirectCount++
-                        }
 
-                        44 -> {
-                            return FetchResult.SlowDown(meta = response.meta, url = currentUrl)
-                        }
-
-                        in 40..49 -> {
-                            return FetchResult.Error(
-                                GeminiError(
+                            in 30..39 -> {
+                                RedirectLoopResult.Redirect(
                                     statusCode = response.status,
-                                    message = response.meta,
-                                    isTemporary = true,
-                                    canRetry = true
+                                    targetUrl = response.meta
                                 )
-                            )
-                        }
+                            }
 
-                        in 50..59 -> {
-                            return FetchResult.Error(
-                                GeminiError(
-                                    statusCode = response.status,
-                                    message = response.meta,
-                                    isTemporary = false,
-                                    canRetry = false
+                            44 -> {
+                                RedirectLoopResult.Complete(
+                                    FetchResult.SlowDown(meta = response.meta, url = currentUrl)
                                 )
-                            )
-                        }
+                            }
 
-                        in 20..29 -> {
-                            dialogManager.clearBackoff(currentUrl)
-                            return FetchResult.Success(
-                                response,
-                                currentUrl,
-                                fetchResult.serverCertInfo
-                            )
-                        }
-
-                        else -> {
-                            return FetchResult.Error(
-                                GeminiError(
-                                    statusCode = response.status,
-                                    message = response.meta.ifBlank { "Unknown status code" },
-                                    isTemporary = true,
-                                    canRetry = true
+                            in 40..49 -> {
+                                RedirectLoopResult.Complete(
+                                    FetchResult.Error(
+                                        GeminiError(
+                                            statusCode = response.status,
+                                            message = response.meta,
+                                            isTemporary = true,
+                                            canRetry = true
+                                        )
+                                    )
                                 )
-                            )
+                            }
+
+                            in 50..59 -> {
+                                RedirectLoopResult.Complete(
+                                    FetchResult.Error(
+                                        GeminiError(
+                                            statusCode = response.status,
+                                            message = response.meta,
+                                            isTemporary = false,
+                                            canRetry = false
+                                        )
+                                    )
+                                )
+                            }
+
+                            in 20..29 -> {
+                                dialogManager.clearBackoff(currentUrl)
+                                RedirectLoopResult.Complete(
+                                    FetchResult.Success(
+                                        response,
+                                        currentUrl,
+                                        fetchResult.serverCertInfo
+                                    )
+                                )
+                            }
+
+                            else -> {
+                                RedirectLoopResult.Complete(
+                                    FetchResult.Error(
+                                        GeminiError(
+                                            statusCode = response.status,
+                                            message = response.meta.ifBlank { "Unknown status code" },
+                                            isTemporary = true,
+                                            canRetry = true
+                                        )
+                                    )
+                                )
+                            }
                         }
                     }
                 }
+            },
+            onInvalidRedirect = { statusCode, message ->
+                FetchResult.Error(
+                    GeminiError(
+                        statusCode = statusCode,
+                        message = message,
+                        isTemporary = true,
+                        canRetry = false
+                    )
+                )
+            },
+            onTooManyRedirects = { redirectLimit ->
+                FetchResult.Error(
+                    GeminiError(
+                        statusCode = 0,
+                        message = "Too many redirects (max $redirectLimit)",
+                        isTemporary = true,
+                        canRetry = false
+                    )
+                )
             }
-        }
-        return FetchResult.Error(
-            GeminiError(
-                statusCode = 0,
-                message = "Too many redirects (max $maxRedirects)",
-                isTemporary = true,
-                canRetry = false
-            )
         )
     }
 
@@ -979,7 +1015,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
         val cacheKey = buildEmbeddedMediaCacheKey(resolvedUrl, certAlias)
         embeddedMediaCache.get(cacheKey)?.let { cached ->
-            val applied = updateEmbeddedMedia(
+            updateEmbeddedMedia(
                 tab = tab,
                 itemId = itemId,
                 expectedDisplayedUrl = baseDisplayedUrl,
@@ -995,9 +1031,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     errorMessage = null
                 )
             }
-            if (applied) {
-                return
-            }
+            return
         }
  
         viewModelScope.launch {
@@ -1068,12 +1102,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun downloadEmbeddedMedia(url: String, data: ByteArray, mimeType: String) {
+    fun downloadEmbeddedMedia(url: String, data: StableByteArray, mimeType: String) {
         val fileName = DownloadUtils.suggestFileName(url, mimeType)
         viewModelScope.launch(Dispatchers.IO) {
             val result = DownloadUtils.saveToDownloads(
                 context = getApplication(),
-                data = data,
+                data = data.bytes,
                 fileName = fileName,
                 mimeType = mimeType
             )
@@ -1090,13 +1124,17 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     private fun resolveUrl(
         url: String,
-        baseUrl: String = activeTab?.displayedUrl?.ifBlank { activeTab?.url } ?: url
+        baseUrl: String? = null
     ): String {
+        val effectiveBaseUrl = baseUrl ?: run {
+            val current = activeTab
+            current?.displayedUrl?.ifBlank { current.url } ?: url
+        }
         return try {
-            if (baseUrl.isBlank()) {
+            if (effectiveBaseUrl.isBlank()) {
                 return url
             }
-            URI(baseUrl).resolve(url).toString()
+            URI(effectiveBaseUrl).resolve(url).toString()
         } catch (_: Exception) {
             url
         }
@@ -1145,60 +1183,126 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         certAlias: String?,
         maxRedirects: Int = 5
     ): EmbeddedMediaFetchResult {
-        var currentUrl = initialUrl
-        var redirectCount = 0
-        while (redirectCount < maxRedirects) {
-            when (val result = client.fetch(currentUrl, certAlias)) {
-                is GeminiFetchResult.Success -> {
-                    val response = result.response
-                    when (response.status) {
-                        in 20..29 -> return EmbeddedMediaFetchResult.Success(response, currentUrl)
-                        in 30..39 -> {
-                            val targetUrl = response.meta
-                            if (targetUrl.isBlank()) {
-                                return EmbeddedMediaFetchResult.Error("Empty redirect target")
-                            }
-                            currentUrl = try {
-                                URI(currentUrl).resolve(targetUrl).toString()
-                            } catch (e: Exception) {
-                                return EmbeddedMediaFetchResult.Error(
-                                    "Invalid redirect target: ${e.message ?: targetUrl}"
+        return followRedirects(
+            initialUrl = initialUrl,
+            certAlias = certAlias,
+            maxRedirects = maxRedirects,
+            mapResult = { result, currentUrl ->
+                when (result) {
+                    is GeminiFetchResult.Success -> {
+                        val response = result.response
+                        when (response.status) {
+                            in 20..29 -> {
+                                RedirectLoopResult.Complete(
+                                    EmbeddedMediaFetchResult.Success(response, currentUrl)
                                 )
                             }
-                            redirectCount++
-                        }
-                        in 10..19 -> {
-                            val prompt = response.meta.ifBlank { "No prompt provided" }
-                            return EmbeddedMediaFetchResult.Error("Input required: $prompt")
-                        }
-                        44 -> {
-                            val meta = response.meta.ifBlank { "No retry hint provided" }
-                            return EmbeddedMediaFetchResult.Error("Server asked to slow down: $meta")
-                        }
-                        in 40..49 -> {
-                            return EmbeddedMediaFetchResult.Error(
-                                "Temporary failure ${response.status}: ${response.meta}"
-                            )
-                        }
-                        in 50..59 -> {
-                            return EmbeddedMediaFetchResult.Error(
-                                "Permanent failure ${response.status}: ${response.meta}"
-                            )
-                        }
-                        else -> {
-                            val meta = response.meta.ifBlank { "Unknown status" }
-                            return EmbeddedMediaFetchResult.Error(
-                                "Unexpected Gemini status ${response.status}: $meta"
-                            )
+
+                            in 30..39 -> {
+                                RedirectLoopResult.Redirect(
+                                    statusCode = response.status,
+                                    targetUrl = response.meta
+                                )
+                            }
+
+                            in 10..19 -> {
+                                val prompt = response.meta.ifBlank { "No prompt provided" }
+                                RedirectLoopResult.Complete(
+                                    EmbeddedMediaFetchResult.Error("Input required: $prompt")
+                                )
+                            }
+
+                            44 -> {
+                                val meta = response.meta.ifBlank { "No retry hint provided" }
+                                RedirectLoopResult.Complete(
+                                    EmbeddedMediaFetchResult.Error("Server asked to slow down: $meta")
+                                )
+                            }
+
+                            in 40..49 -> {
+                                RedirectLoopResult.Complete(
+                                    EmbeddedMediaFetchResult.Error(
+                                        "Temporary failure ${response.status}: ${response.meta}"
+                                    )
+                                )
+                            }
+
+                            in 50..59 -> {
+                                RedirectLoopResult.Complete(
+                                    EmbeddedMediaFetchResult.Error(
+                                        "Permanent failure ${response.status}: ${response.meta}"
+                                    )
+                                )
+                            }
+
+                            else -> {
+                                val meta = response.meta.ifBlank { "Unknown status" }
+                                RedirectLoopResult.Complete(
+                                    EmbeddedMediaFetchResult.Error(
+                                        "Unexpected Gemini status ${response.status}: $meta"
+                                    )
+                                )
+                            }
                         }
                     }
+
+                    else -> {
+                        RedirectLoopResult.Complete(
+                            EmbeddedMediaFetchResult.Error(formatEmbeddedMediaFetchError(result))
+                        )
+                    }
                 }
-                else -> {
-                    return EmbeddedMediaFetchResult.Error(formatEmbeddedMediaFetchError(result))
+            },
+            onInvalidRedirect = { _, message ->
+                EmbeddedMediaFetchResult.Error(message)
+            },
+            onTooManyRedirects = { redirectLimit ->
+                EmbeddedMediaFetchResult.Error("Too many redirects (max $redirectLimit)")
+            }
+        )
+    }
+
+    private suspend fun <T> followRedirects(
+        initialUrl: String,
+        certAlias: String?,
+        maxRedirects: Int,
+        mapResult: (result: GeminiFetchResult, currentUrl: String) -> RedirectLoopResult<T>,
+        onInvalidRedirect: (statusCode: Int, message: String) -> T,
+        onTooManyRedirects: (redirectLimit: Int) -> T
+    ): T {
+        var currentUrl = initialUrl
+        var redirectCount = 0
+
+        while (redirectCount < maxRedirects) {
+            val fetchResult = client.fetch(currentUrl, certAlias)
+            currentCoroutineContext().ensureActive()
+
+            when (val mapped = mapResult(fetchResult, currentUrl)) {
+                is RedirectLoopResult.Complete -> return mapped.value
+                is RedirectLoopResult.Redirect -> {
+                    val targetUrl = mapped.targetUrl
+                    if (targetUrl.isBlank()) {
+                        return onInvalidRedirect(mapped.statusCode, "Empty redirect target")
+                    }
+                    currentUrl = try {
+                        URI(currentUrl).resolve(targetUrl).toString()
+                    } catch (e: URISyntaxException) {
+                        return onInvalidRedirect(
+                            mapped.statusCode,
+                            "Invalid redirect target: ${e.message ?: targetUrl}"
+                        )
+                    } catch (e: IllegalArgumentException) {
+                        return onInvalidRedirect(
+                            mapped.statusCode,
+                            "Invalid redirect target: ${e.message ?: targetUrl}"
+                        )
+                    }
+                    redirectCount++
                 }
             }
         }
-        return EmbeddedMediaFetchResult.Error("Too many redirects (max $maxRedirects)")
+
+        return onTooManyRedirects(maxRedirects)
     }
 
     private fun formatEmbeddedMediaFetchError(result: GeminiFetchResult): String {
