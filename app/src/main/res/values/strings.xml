@@ -1,3 +1,14 @@
 <resources>
     <string name="app_name">Gemcap</string>
+    <string name="history_title">History</string>
+    <string name="history_empty_text">No history yet</string>
+    <string name="clear_history_label">Clear History</string>
+    <string name="clear_history_confirm">Are you sure you want to clear all browsing history?</string>
+    <string name="clear_history_content_description">Clear history</string>
+    <string name="history_close_content_description">Close</string>
+    <string name="clear_button">Clear</string>
+    <string name="cancel_button">Cancel</string>
+    <string name="history_time_just_now">Just now</string>
+    <string name="history_time_minutes_ago">%1$dm ago</string>
+    <string name="history_time_hours_ago">%1$dh ago</string>
 </resources>
