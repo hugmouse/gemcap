@@ -4,6 +4,7 @@ import androidx.compose.runtime.Stable
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import mysh.dev.gemcap.data.FontSize
+import mysh.dev.gemcap.data.SearchEngine
 import mysh.dev.gemcap.data.ThemeMode
 import mysh.dev.gemcap.domain.BackoffState
 import mysh.dev.gemcap.domain.Bookmark
@@ -114,7 +115,8 @@ data class AutocompleteState(
 data class SettingsState(
     val themeMode: ThemeMode,
     val fontSize: FontSize,
-    val homePage: String
+    val homePage: String,
+    val searchEngine: SearchEngine
 )
 
 /**

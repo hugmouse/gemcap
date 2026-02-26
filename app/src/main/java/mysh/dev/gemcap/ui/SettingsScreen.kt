@@ -45,16 +45,19 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import mysh.dev.gemcap.data.FontSize
+import mysh.dev.gemcap.data.SearchEngine
 import mysh.dev.gemcap.data.ThemeMode
 
 @Composable
 fun SettingsScreen(
     themeMode: ThemeMode,
     fontSize: FontSize,
+    searchEngine: SearchEngine,
     homePage: String,
     currentPageUrl: String,
     onThemeModeChange: (ThemeMode) -> Unit,
     onFontSizeChange: (FontSize) -> Unit,
+    onSearchEngineChange: (SearchEngine) -> Unit,
     onHomePageChange: (String) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
@@ -172,6 +175,29 @@ fun SettingsScreen(
                     }
                 }
 
+                HorizontalDivider()
+                // Search Engine Section
+                SettingsSection(title = "Search Engine") {
+                    SearchEngine.entries.forEach { engine ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSearchEngineChange(engine) }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = searchEngine == engine,
+                                onClick = { onSearchEngineChange(engine) }
+                            )
+                            Text(
+                                text = engine.displayName,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
+                        }
+                    }
+                }
                 HorizontalDivider()
 
                 // Home Page Section

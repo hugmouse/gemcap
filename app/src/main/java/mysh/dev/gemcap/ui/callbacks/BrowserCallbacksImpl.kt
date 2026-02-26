@@ -4,6 +4,7 @@ import android.view.View
 import androidx.compose.runtime.Stable
 import androidx.compose.ui.unit.Density
 import mysh.dev.gemcap.data.FontSize
+import mysh.dev.gemcap.data.SearchEngine
 import mysh.dev.gemcap.data.ThemeMode
 import mysh.dev.gemcap.domain.Bookmark
 import mysh.dev.gemcap.domain.ClientCertificate
@@ -116,6 +117,7 @@ class BrowserCallbacksImpl(
         viewModel.updateFontSize(size)
         onFontSizeChanged(size)
     }
+    override fun onSearchEngineChange(engine: SearchEngine) = viewModel.updateSearchEngine(engine)
 
     override fun onHomePageChange(url: String) = viewModel.setHomePage(url)
     override fun onSetAsHomePage() = viewModel.setCurrentPageAsHome()

@@ -71,6 +71,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
 import mysh.dev.gemcap.BuildConfig
 import mysh.dev.gemcap.data.FontSize
+import mysh.dev.gemcap.data.SearchEngine
 import mysh.dev.gemcap.data.ThemeMode
 import mysh.dev.gemcap.domain.GeminiContent
 import mysh.dev.gemcap.domain.GeminiError
@@ -91,7 +92,6 @@ import mysh.dev.gemcap.ui.model.SearchState
 import mysh.dev.gemcap.ui.model.TabState
 import mysh.dev.gemcap.ui.model.TabsUiState
 import mysh.dev.gemcap.util.ScreenshotUtils
-import java.net.URLEncoder
 
 private const val TAG = "Recomposition"
 
@@ -242,7 +242,10 @@ private fun BrowserScaffold(
 
     val activeTab = contentState.activeTab
     val panelState = dialogsState.panelState
-    val homePageUrl = normalizeHomeUrl(dialogsState.settingsState.homePage)
+    val homePageUrl = normalizeHomeUrl(
+        rawUrl = dialogsState.settingsState.homePage,
+        searchEngine = dialogsState.settingsState.searchEngine
+    )
     val canGoBack = activeTab?.canGoBack() == true
     val isAtHome = activeTab?.url == homePageUrl
     val shouldGoHome = activeTab != null && !canGoBack && !isAtHome
@@ -310,7 +313,7 @@ private fun BrowserScaffold(
     )
 }
 
-private fun normalizeHomeUrl(rawUrl: String): String {
+private fun normalizeHomeUrl(rawUrl: String, searchEngine: SearchEngine): String {
     val trimmed = rawUrl.trim()
     if (trimmed == HOME_URL || trimmed == "about:gemtext") {
         return trimmed
@@ -322,8 +325,7 @@ private fun normalizeHomeUrl(rawUrl: String): String {
     return if (looksLikeUrl) {
         "gemini://$trimmed"
     } else {
-        val encodedQuery = URLEncoder.encode(trimmed, "UTF-8")
-        "gemini://gemini-search.mysh.dev/?$encodedQuery"
+        searchEngine.buildSearchUrl(trimmed)
     }
 }
 

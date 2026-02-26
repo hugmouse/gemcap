@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import mysh.dev.gemcap.data.FontSize
+import mysh.dev.gemcap.data.SearchEngine
 import mysh.dev.gemcap.data.SettingsRepository
 import mysh.dev.gemcap.data.ThemeMode
 import mysh.dev.gemcap.ui.model.PanelState
@@ -18,12 +19,14 @@ class SettingsManager(
         SettingsState(
             themeMode = settingsRepository.themeMode,
             fontSize = settingsRepository.fontSize,
-            homePage = settingsRepository.homePage
+            homePage = settingsRepository.homePage,
+            searchEngine = settingsRepository.searchEngine
         )
     )
         private set
 
     fun getHomePage(): String = settingsRepository.homePage
+    fun getSearchEngine(): SearchEngine = settingsRepository.searchEngine
 
     fun showScreen() {
         updatePanelState(getPanelState().copy(showSettings = true, showMenu = false))
@@ -41,6 +44,10 @@ class SettingsManager(
     fun updateFontSize(size: FontSize) {
         settingsState = settingsState.copy(fontSize = size)
         settingsRepository.fontSize = size
+    }
+    fun updateSearchEngine(engine: SearchEngine) {
+        settingsState = settingsState.copy(searchEngine = engine)
+        settingsRepository.searchEngine = engine
     }
 
     fun setHomePage(url: String) {

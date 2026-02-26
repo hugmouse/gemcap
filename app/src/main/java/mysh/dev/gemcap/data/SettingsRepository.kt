@@ -5,6 +5,7 @@ import androidx.core.content.edit
 import mysh.dev.gemcap.ui.model.HOME_URL
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URLEncoder
 
 enum class ThemeMode {
     SYSTEM, LIGHT, DARK
@@ -16,6 +17,22 @@ enum class FontSize(val scaleFactor: Float) {
     LARGE(1.15f),
     EXTRA_LARGE(1.3f)
 }
+
+enum class SearchEngine(val displayName: String, private val template: String) {
+    GEMCAP("Gemcap", "gemini://gemini-search.mysh.dev/?%s"),
+    KENNEDY("Kennedy", "gemini://kennedy.gemi.dev/search?%s"),
+    TLGS("TLGS", "gemini://tlgs.one/search?%s");
+    companion object {
+        fun fromOrdinal(ordinal: Int): SearchEngine {
+            return entries.getOrElse(ordinal) { GEMCAP }
+        }
+    }
+    fun buildSearchUrl(query: String): String {
+        val encodedQuery = URLEncoder.encode(query, "UTF-8")
+        return template.format(encodedQuery)
+    }
+}
+
 data class TabSession(
     val tabUrls: List<String>,
     val activeTabIndex: Int
@@ -29,6 +46,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_HOME_PAGE = "home_page"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_FONT_SIZE = "font_size"
+        private const val KEY_SEARCH_ENGINE = "search_engine"
         private const val KEY_TAB_SESSION = "tab_session"
     }
 
@@ -54,6 +72,14 @@ class SettingsRepository(context: Context) {
         }
         set(value) {
             prefs.edit { putInt(KEY_FONT_SIZE, value.ordinal) }
+        }
+    var searchEngine: SearchEngine
+        get() {
+            val ordinal = prefs.getInt(KEY_SEARCH_ENGINE, SearchEngine.GEMCAP.ordinal)
+            return SearchEngine.fromOrdinal(ordinal)
+        }
+        set(value) {
+            prefs.edit { putInt(KEY_SEARCH_ENGINE, value.ordinal) }
         }
     var tabSession: TabSession?
         get() {

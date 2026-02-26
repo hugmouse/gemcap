@@ -180,10 +180,12 @@ fun DialogOrchestrator(
         SettingsScreen(
             themeMode = settingsState.themeMode,
             fontSize = settingsState.fontSize,
+            searchEngine = settingsState.searchEngine,
             homePage = settingsState.homePage,
             currentPageUrl = currentPageUrl,
             onThemeModeChange = { callbacks.onThemeModeChange(it) },
             onFontSizeChange = { callbacks.onFontSizeChange(it) },
+            onSearchEngineChange = { callbacks.onSearchEngineChange(it) },
             onHomePageChange = { callbacks.onHomePageChange(it) },
             onDismiss = { callbacks.onDismissSettings() }
         )

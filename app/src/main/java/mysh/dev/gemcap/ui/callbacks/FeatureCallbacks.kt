@@ -1,6 +1,7 @@
 package mysh.dev.gemcap.ui.callbacks
 
 import mysh.dev.gemcap.data.FontSize
+import mysh.dev.gemcap.data.SearchEngine
 import mysh.dev.gemcap.data.ThemeMode
 import mysh.dev.gemcap.domain.Bookmark
 import mysh.dev.gemcap.domain.ClientCertificate
@@ -91,6 +92,7 @@ interface SettingsCallbacks {
     fun onDismissSettings()
     fun onThemeModeChange(mode: ThemeMode)
     fun onFontSizeChange(size: FontSize)
+    fun onSearchEngineChange(engine: SearchEngine)
     fun onHomePageChange(url: String)
     fun onSetAsHomePage()
 }

@@ -27,6 +27,7 @@ import kotlinx.coroutines.yield
 import mysh.dev.gemcap.data.BrowserRepository
 import mysh.dev.gemcap.data.ClientCertRepository
 import mysh.dev.gemcap.data.FontSize
+import mysh.dev.gemcap.data.SearchEngine
 import mysh.dev.gemcap.data.SettingsRepository
 import mysh.dev.gemcap.data.TabSession
 import mysh.dev.gemcap.data.ThemeMode
@@ -702,8 +703,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 targetUrl = if (looksLikeUrl) {
                     "gemini://$targetUrl"
                 } else {
-                    val encodedQuery = URLEncoder.encode(targetUrl, "UTF-8")
-                    "gemini://gemini-search.mysh.dev/?$encodedQuery"
+                    settingsManager.getSearchEngine().buildSearchUrl(targetUrl)
                 }
             }
 
@@ -912,6 +912,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun dismissSettingsScreen() = settingsManager.dismissScreen()
     fun updateThemeMode(mode: ThemeMode) = settingsManager.updateThemeMode(mode)
     fun updateFontSize(size: FontSize) = settingsManager.updateFontSize(size)
+    fun updateSearchEngine(engine: SearchEngine) = settingsManager.updateSearchEngine(engine)
     fun setHomePage(url: String) = settingsManager.setHomePage(url)
 
     // Image handling
