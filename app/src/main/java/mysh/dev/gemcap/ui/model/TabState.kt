@@ -25,6 +25,11 @@ data class ScrollPosition(
     val firstVisibleItemIndex: Int = 0,
     val firstVisibleItemScrollOffset: Int = 0
 )
+data class PersistedHistoryWindow(
+    val entries: List<String>,
+    val currentIndex: Int,
+    val scrollPositions: Map<String, ScrollPosition>
+)
 
 // TODO: move it out of here somewhere, this does not belong here
 const val HOME_URL = "about:home"
@@ -136,5 +141,41 @@ class TabState(
             return url
         }
         return null
+    }
+    fun restoreHistory(historyUrls: List<String>, index: Int) {
+        history.clear()
+        history.addAll(historyUrls.filter { it.isNotBlank() })
+        if (history.isEmpty()) {
+            historyIndex = -1
+            return
+        }
+        historyIndex = index.coerceIn(0, history.lastIndex)
+        url = history[historyIndex]
+    }
+    fun restoreScrollPositions(positions: Map<String, ScrollPosition>) {
+        scrollPositions.clear()
+        scrollPositions.putAll(positions)
+    }
+    fun buildPersistedHistoryWindow(maxEntries: Int): PersistedHistoryWindow {
+        if (history.isEmpty()) {
+            return PersistedHistoryWindow(emptyList(), 0, emptyMap())
+        }
+        val boundedMax = maxEntries.coerceAtLeast(1)
+        val current = historyIndex.coerceIn(0, history.lastIndex)
+        if (history.size <= boundedMax) {
+            val entries = history.toList()
+            val persistedScroll = entries.associateWith { key ->
+                scrollPositions[key] ?: ScrollPosition()
+            }
+            return PersistedHistoryWindow(entries, current, persistedScroll)
+        }
+        val halfWindow = boundedMax / 2
+        val start = (current - halfWindow).coerceIn(0, history.size - boundedMax)
+        val end = start + boundedMax
+        val entries = history.subList(start, end).toList()
+        val persistedScroll = entries.associateWith { key ->
+            scrollPositions[key] ?: ScrollPosition()
+        }
+        return PersistedHistoryWindow(entries, current - start, persistedScroll)
     }
 }

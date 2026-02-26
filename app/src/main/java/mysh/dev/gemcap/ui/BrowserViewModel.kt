@@ -20,6 +20,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -29,7 +30,9 @@ import mysh.dev.gemcap.data.ClientCertRepository
 import mysh.dev.gemcap.data.FontSize
 import mysh.dev.gemcap.data.SearchEngine
 import mysh.dev.gemcap.data.SettingsRepository
+import mysh.dev.gemcap.data.TabHistoryEntrySession
 import mysh.dev.gemcap.data.TabSession
+import mysh.dev.gemcap.data.TabSessionState
 import mysh.dev.gemcap.data.ThemeMode
 import mysh.dev.gemcap.domain.Bookmark
 import mysh.dev.gemcap.domain.ClientCertificate
@@ -77,6 +80,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     companion object {
         private const val EMBEDDED_MEDIA_CACHE_MAX_BYTES = 50 * 1024 * 1024
         private const val EMBEDDED_MEDIA_CACHE_TTL_MILLIS = 30L * 60L * 1000L
+        private const val TAB_HISTORY_PERSIST_LIMIT = 50
+        private const val TAB_SESSION_PERSIST_DEBOUNCE_MILLIS = 400L
     }
 
     private val client = GeminiClient(application)
@@ -94,6 +99,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     // Track loading jobs per tab for cancellation
     private val loadingJobs = mutableMapOf<String, Job>()
     private val embeddedMediaLoadingJobs = mutableMapOf<String, Job>()
+    private var tabSessionPersistJob: Job? = null
 
     // Panel state (shared across managers)
     var panelState by mutableStateOf(PanelState())
@@ -111,7 +117,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     private val tabManager = TabManager(
         getHomePage = { settingsManager.getHomePage() },
-        onTabChanged = { bookmarkManager.updateBookmarkStatus(activeTab?.url) }
+        onTabChanged = {
+            bookmarkManager.updateBookmarkStatus(activeTab?.url)
+            schedulePersistTabSession()
+        }
     )
 
     private val searchManager = SearchManager()
@@ -218,13 +227,26 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         tabManager.initialize(
-            initialUrls = restoredTabSession?.tabUrls.orEmpty(),
+            initialTabs = restoredTabSession?.tabs.orEmpty(),
             activeIndex = restoredTabSession?.activeTabIndex ?: 0
         )
         bookmarkManager.refresh()
         historyManager.refresh()
         certificateManager.refresh()
-        loadPage(addToHistory = true)
+        if (restoredTabSession == null) {
+            loadPage(addToHistory = true)
+        } else {
+            reloadRestoredTabs()
+        }
+    }
+    private fun reloadRestoredTabs() {
+        val originalActiveTabId = activeTabId ?: return
+        val tabIds = tabs.map { it.id }
+        tabIds.forEach { tabId ->
+            tabManager.selectTab(tabId)
+            loadPage(addToHistory = false)
+        }
+        tabManager.selectTab(originalActiveTabId)
     }
 
     // Search delegation
@@ -330,7 +352,17 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun dismissDownloadPrompt() = dialogManager.dismissDownloadPrompt()
+    fun schedulePersistTabSession() {
+        tabSessionPersistJob?.cancel()
+        tabSessionPersistJob = viewModelScope.launch {
+            delay(TAB_SESSION_PERSIST_DEBOUNCE_MILLIS)
+            persistTabSession()
+        }
+    }
+    fun onTabSessionStateChanged() = schedulePersistTabSession()
     fun persistTabSession() {
+        tabSessionPersistJob?.cancel()
+        tabSessionPersistJob = null
         val currentTabs = tabManager.tabs
         if (currentTabs.isEmpty()) {
             settingsRepository.tabSession = null
@@ -339,8 +371,22 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val activeIndex = currentTabs.indexOfFirst { it.id == tabManager.activeTabId }
             .let { index -> if (index >= 0) index else 0 }
         settingsRepository.tabSession = TabSession(
-            tabUrls = currentTabs.map { tab ->
-                tab.url.trim().ifBlank { settingsManager.getHomePage() }
+            tabs = currentTabs.mapNotNull { tab ->
+                val window = tab.buildPersistedHistoryWindow(TAB_HISTORY_PERSIST_LIMIT)
+                if (window.entries.isEmpty()) {
+                    return@mapNotNull null
+                }
+                TabSessionState(
+                    entries = window.entries.map { url ->
+                        val scroll = window.scrollPositions[url] ?: tab.getScrollPosition(url)
+                        TabHistoryEntrySession(
+                            url = url.trim().ifBlank { settingsManager.getHomePage() },
+                            scrollIndex = scroll.firstVisibleItemIndex,
+                            scrollOffset = scroll.firstVisibleItemScrollOffset
+                        )
+                    },
+                    currentIndex = window.currentIndex.coerceIn(0, window.entries.lastIndex)
+                )
             },
             activeTabIndex = activeIndex
         )
@@ -709,6 +755,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
             if (addToHistory) {
                 currentTab.addToHistory(targetUrl)
+                schedulePersistTabSession()
             } else {
                 currentTab.updateUrl(targetUrl)
             }
@@ -886,12 +933,14 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun goBack() {
         if (activeTab?.goBack() != null) {
+            schedulePersistTabSession()
             loadPage(addToHistory = false)
         }
     }
 
     fun goForward() {
         if (activeTab?.goForward() != null) {
+            schedulePersistTabSession()
             loadPage(addToHistory = false)
         }
     }

@@ -554,6 +554,7 @@ private fun GeminiContentList(
                     firstVisibleItemIndex = index,
                     firstVisibleItemScrollOffset = offset
                 )
+                callbacks.onTabSessionStateChanged()
             }
     }
 

@@ -129,6 +129,7 @@ class BrowserCallbacksImpl(
     // AutocompleteCallbacks
     override fun onSuggestionClick(entry: HistoryEntry) = viewModel.selectSuggestion(entry)
     override fun onSuggestionsDismiss() = viewModel.dismissSuggestions()
+    override fun onTabSessionStateChanged() = viewModel.onTabSessionStateChanged()
 
     // LinkContextCallbacks
     override fun onCopyLink(url: String) = viewModel.copyLinkToClipboard(url)

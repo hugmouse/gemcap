@@ -34,8 +34,17 @@ enum class SearchEngine(val displayName: String, private val template: String) {
 }
 
 data class TabSession(
-    val tabUrls: List<String>,
+    val tabs: List<TabSessionState>,
     val activeTabIndex: Int
+)
+data class TabSessionState(
+    val entries: List<TabHistoryEntrySession>,
+    val currentIndex: Int
+)
+data class TabHistoryEntrySession(
+    val url: String,
+    val scrollIndex: Int,
+    val scrollOffset: Int
 )
 
 class SettingsRepository(context: Context) {
@@ -48,6 +57,90 @@ class SettingsRepository(context: Context) {
         private const val KEY_FONT_SIZE = "font_size"
         private const val KEY_SEARCH_ENGINE = "search_engine"
         private const val KEY_TAB_SESSION = "tab_session"
+        internal fun parseTabSession(rawSession: String): TabSession? {
+            return try {
+                val json = JSONObject(rawSession)
+                val tabsArray = json.optJSONArray("tabs") ?: return null
+                val tabs = buildList {
+                    for (index in 0 until tabsArray.length()) {
+                        val tabJson = tabsArray.optJSONObject(index) ?: continue
+                        val entriesArray = tabJson.optJSONArray("entries") ?: continue
+                        val entries = buildList {
+                            for (entryIndex in 0 until entriesArray.length()) {
+                                val entryJson = entriesArray.optJSONObject(entryIndex) ?: continue
+                                val url = entryJson.optString("url", "").trim()
+                                if (url.isBlank()) {
+                                    continue
+                                }
+                                add(
+                                    TabHistoryEntrySession(
+                                        url = url,
+                                        scrollIndex = entryJson.optInt("scrollIndex", 0)
+                                            .coerceAtLeast(0),
+                                        scrollOffset = entryJson.optInt("scrollOffset", 0)
+                                            .coerceAtLeast(0)
+                                    )
+                                )
+                            }
+                        }
+                        if (entries.isNotEmpty()) {
+                            val currentIndex = tabJson.optInt("currentIndex", entries.lastIndex)
+                                .coerceIn(0, entries.lastIndex)
+                            add(
+                                TabSessionState(
+                                    entries = entries,
+                                    currentIndex = currentIndex
+                                )
+                            )
+                        }
+                    }
+                }
+                if (tabs.isEmpty()) {
+                    return null
+                }
+                val activeTabIndex = json.optInt("activeTabIndex", 0).coerceIn(0, tabs.lastIndex)
+                TabSession(tabs = tabs, activeTabIndex = activeTabIndex)
+            } catch (_: Exception) {
+                null
+            }
+        }
+        internal fun serializeTabSession(value: TabSession?): String? {
+            if (value == null || value.tabs.isEmpty()) {
+                return null
+            }
+            val tabsArray = JSONArray()
+            value.tabs.forEach { tab ->
+                if (tab.entries.isEmpty()) {
+                    return@forEach
+                }
+                val entriesArray = JSONArray()
+                tab.entries.forEach { entry ->
+                    entriesArray.put(
+                        JSONObject().apply {
+                            put("url", entry.url)
+                            put("scrollIndex", entry.scrollIndex.coerceAtLeast(0))
+                            put("scrollOffset", entry.scrollOffset.coerceAtLeast(0))
+                        }
+                    )
+                }
+                if (entriesArray.length() == 0) {
+                    return@forEach
+                }
+                tabsArray.put(
+                    JSONObject().apply {
+                        put("entries", entriesArray)
+                        put("currentIndex", tab.currentIndex.coerceIn(0, tab.entries.lastIndex))
+                    }
+                )
+            }
+            if (tabsArray.length() == 0) {
+                return null
+            }
+            return JSONObject().apply {
+                put("tabs", tabsArray)
+                put("activeTabIndex", value.activeTabIndex.coerceIn(0, tabsArray.length() - 1))
+            }.toString()
+        }
     }
 
     var homePage: String
@@ -84,39 +177,16 @@ class SettingsRepository(context: Context) {
     var tabSession: TabSession?
         get() {
             val rawSession = prefs.getString(KEY_TAB_SESSION, null) ?: return null
-            return try {
-                val json = JSONObject(rawSession)
-                val tabsArray = json.optJSONArray("tabs") ?: return null
-                val tabs = buildList {
-                    for (index in 0 until tabsArray.length()) {
-                        val value = tabsArray.optString(index)
-                        if (value.isNotBlank()) {
-                            add(value)
-                        }
-                    }
-                }
-                if (tabs.isEmpty()) {
-                    return null
-                }
-                val activeTabIndex = json.optInt("activeTabIndex", 0).coerceIn(0, tabs.lastIndex)
-                TabSession(tabUrls = tabs, activeTabIndex = activeTabIndex)
-            } catch (_: Exception) {
-                null
-            }
+            return parseTabSession(rawSession)
         }
         set(value) {
             prefs.edit {
-                if (value == null || value.tabUrls.isEmpty()) {
+                val encoded = serializeTabSession(value)
+                if (encoded == null) {
                     remove(KEY_TAB_SESSION)
                     return@edit
                 }
-                val tabsArray = JSONArray()
-                value.tabUrls.forEach { tabsArray.put(it) }
-                val json = JSONObject().apply {
-                    put("tabs", tabsArray)
-                    put("activeTabIndex", value.activeTabIndex.coerceIn(0, value.tabUrls.lastIndex))
-                }
-                putString(KEY_TAB_SESSION, json.toString())
+                putString(KEY_TAB_SESSION, encoded)
             }
         }
 }

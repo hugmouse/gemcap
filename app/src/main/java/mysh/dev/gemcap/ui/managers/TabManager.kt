@@ -4,6 +4,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import mysh.dev.gemcap.data.TabSessionState
+import mysh.dev.gemcap.ui.model.ScrollPosition
 import mysh.dev.gemcap.ui.model.TabState
 
 class TabManager(
@@ -18,15 +20,38 @@ class TabManager(
     val activeTab: TabState?
         get() = tabs.find { it.id == activeTabId }
 
-    fun initialize(initialUrls: List<String> = emptyList(), activeIndex: Int = 0) {
+    fun initialize(initialTabs: List<TabSessionState> = emptyList(), activeIndex: Int = 0) {
         tabs.clear()
-        val urls = initialUrls.filter { it.isNotBlank() }
-        val restoredTabs = if (urls.isNotEmpty()) {
-            urls.map { TabState(initialUrl = it) }
+        val restoredTabs = if (initialTabs.isNotEmpty()) {
+            initialTabs.mapNotNull { sessionTab ->
+                if (sessionTab.entries.isEmpty()) {
+                    return@mapNotNull null
+                }
+                val safeIndex = sessionTab.currentIndex.coerceIn(0, sessionTab.entries.lastIndex)
+                val currentEntry = sessionTab.entries[safeIndex]
+                val tab = TabState(initialUrl = currentEntry.url)
+                tab.restoreHistory(
+                    historyUrls = sessionTab.entries.map { it.url },
+                    index = safeIndex
+                )
+                tab.restoreScrollPositions(
+                    sessionTab.entries.associate { entry ->
+                        entry.url to ScrollPosition(
+                            firstVisibleItemIndex = entry.scrollIndex,
+                            firstVisibleItemScrollOffset = entry.scrollOffset
+                        )
+                    }
+                )
+                tab
+            }
         } else {
             listOf(TabState(initialUrl = getHomePage()))
         }
-        tabs.addAll(restoredTabs)
+        if (restoredTabs.isEmpty()) {
+            tabs.add(TabState(initialUrl = getHomePage()))
+        } else {
+            tabs.addAll(restoredTabs)
+        }
         activeTabId = tabs[activeIndex.coerceIn(0, tabs.lastIndex)].id
         onTabChanged()
     }
@@ -52,6 +77,7 @@ class TabManager(
                 addNewTab()
             }
         }
+        onTabChanged()
     }
 
     fun selectTab(tabId: String) {
@@ -62,6 +88,7 @@ class TabManager(
     fun openInNewTab(url: String): TabState {
         val newTab = TabState(initialUrl = url)
         tabs.add(newTab)
+        onTabChanged()
         return newTab
     }
 
@@ -69,6 +96,7 @@ class TabManager(
         val newTab = TabState(initialUrl = imageUrl)
         tabs.add(newTab)
         activeTabId = newTab.id
+        onTabChanged()
         return newTab
     }
 }

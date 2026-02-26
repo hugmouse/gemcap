@@ -106,6 +106,9 @@ interface AutocompleteCallbacks {
     fun onSuggestionClick(entry: HistoryEntry)
     fun onSuggestionsDismiss()
 }
+interface SessionCallbacks {
+    fun onTabSessionStateChanged()
+}
 
 interface LinkContextCallbacks {
     fun onCopyLink(url: String)
@@ -125,4 +128,5 @@ interface BrowserCallbacks :
     SettingsCallbacks,
     MenuCallbacks,
     AutocompleteCallbacks,
+    SessionCallbacks,
     LinkContextCallbacks
