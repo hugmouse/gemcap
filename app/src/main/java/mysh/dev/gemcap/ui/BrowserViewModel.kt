@@ -28,6 +28,7 @@ import mysh.dev.gemcap.data.BrowserRepository
 import mysh.dev.gemcap.data.ClientCertRepository
 import mysh.dev.gemcap.data.FontSize
 import mysh.dev.gemcap.data.SettingsRepository
+import mysh.dev.gemcap.data.TabSession
 import mysh.dev.gemcap.data.ThemeMode
 import mysh.dev.gemcap.domain.Bookmark
 import mysh.dev.gemcap.domain.ClientCertificate
@@ -212,9 +213,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         data class Complete<T>(val value: T) : RedirectLoopResult<T>()
         data class Redirect(val statusCode: Int, val targetUrl: String) : RedirectLoopResult<Nothing>()
     }
+    private val restoredTabSession = settingsRepository.tabSession
 
     init {
-        tabManager.initialize()
+        tabManager.initialize(
+            initialUrls = restoredTabSession?.tabUrls.orEmpty(),
+            activeIndex = restoredTabSession?.activeTabIndex ?: 0
+        )
         bookmarkManager.refresh()
         historyManager.refresh()
         certificateManager.refresh()
@@ -324,6 +329,21 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun dismissDownloadPrompt() = dialogManager.dismissDownloadPrompt()
+    fun persistTabSession() {
+        val currentTabs = tabManager.tabs
+        if (currentTabs.isEmpty()) {
+            settingsRepository.tabSession = null
+            return
+        }
+        val activeIndex = currentTabs.indexOfFirst { it.id == tabManager.activeTabId }
+            .let { index -> if (index >= 0) index else 0 }
+        settingsRepository.tabSession = TabSession(
+            tabUrls = currentTabs.map { tab ->
+                tab.url.trim().ifBlank { settingsManager.getHomePage() }
+            },
+            activeTabIndex = activeIndex
+        )
+    }
 
     private fun loadLocalPage(url: String): String? {
         val assetName = when (url) {

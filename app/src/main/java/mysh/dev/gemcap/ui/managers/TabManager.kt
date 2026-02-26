@@ -18,10 +18,17 @@ class TabManager(
     val activeTab: TabState?
         get() = tabs.find { it.id == activeTabId }
 
-    fun initialize() {
-        val initialTab = TabState(initialUrl = getHomePage())
-        tabs.add(initialTab)
-        activeTabId = initialTab.id
+    fun initialize(initialUrls: List<String> = emptyList(), activeIndex: Int = 0) {
+        tabs.clear()
+        val urls = initialUrls.filter { it.isNotBlank() }
+        val restoredTabs = if (urls.isNotEmpty()) {
+            urls.map { TabState(initialUrl = it) }
+        } else {
+            listOf(TabState(initialUrl = getHomePage()))
+        }
+        tabs.addAll(restoredTabs)
+        activeTabId = tabs[activeIndex.coerceIn(0, tabs.lastIndex)].id
+        onTabChanged()
     }
 
     fun addNewTab(): TabState {
