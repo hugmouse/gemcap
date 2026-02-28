@@ -1,5 +1,6 @@
 package mysh.dev.gemcap.util
 
+import android.util.Log
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo
 import org.bouncycastle.cert.X509CertificateHolder
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
@@ -17,6 +18,8 @@ import java.io.StringWriter
 import java.security.PrivateKey
 import java.security.Provider
 import java.security.cert.X509Certificate
+
+private const val TAG = "PemUtils"
 
 object PemUtils {
 
@@ -79,7 +82,12 @@ object PemUtils {
                 privateKey == null -> PemParseResult.Error("No private key found in PEM data")
                 else -> PemParseResult.Success(certificate = certificate, privateKey = privateKey)
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "PEM parse failed (hasPassphrase=${normalizedPassphrase != null})",
+                e
+            )
             if (normalizedPassphrase != null) {
                 PemParseResult.Error("Incorrect passphrase or invalid PEM data")
             } else {

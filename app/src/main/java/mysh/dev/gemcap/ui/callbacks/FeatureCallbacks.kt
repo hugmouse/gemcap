@@ -67,7 +67,6 @@ interface CertificateCallbacks {
     fun onSetIdentityUsage(alias: String, usage: IdentityUsage?)
 
     fun onConnectionInfoClick()
-Le
     // Import/Export
     fun onShowIdentityImport()
     fun onDismissIdentityImport()

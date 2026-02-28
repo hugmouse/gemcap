@@ -74,13 +74,15 @@ class SelectiveKeyManager(
     }
 
     override fun getCertificateChain(alias: String?): Array<X509Certificate>? {
-        if (alias == null) return null
+        val selectedAlias = selectedAliasOrNull() ?: return null
+        if (alias == null || alias != selectedAlias) return null
         val (_, certificate) = cachedIdentity ?: return null
         return arrayOf(certificate)
     }
 
     override fun getPrivateKey(alias: String?): PrivateKey? {
-        if (alias == null) return null
+        val selectedAlias = selectedAliasOrNull() ?: return null
+        if (alias == null || alias != selectedAlias) return null
         val (privateKey, _) = cachedIdentity ?: return null
         return privateKey
     }

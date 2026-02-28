@@ -1074,8 +1074,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun parseIdentityPem(pemData: String, passphrase: String?, onResult: (ImportResult) -> Unit) {
-        val result = certificateManager.parseIdentityPem(pemData, passphrase)
-        onResult(result)
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = certificateManager.parseIdentityPem(pemData, passphrase)
+            withContext(Dispatchers.Main) {
+                onResult(result)
+            }
+        }
     }
 
     fun importIdentity(
@@ -1083,14 +1087,17 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         passphrase: String?,
         onResult: (success: Boolean, errorMessage: String?) -> Unit
     ) {
-        viewModelScope.launch {
-            when (val result = certificateManager.importIdentity(pemData, passphrase)) {
-                is IdentityImportStoreResult.Success -> onResult(true, null)
-                is IdentityImportStoreResult.NeedsPassphrase -> {
-                    onResult(false, getApplication<Application>().getString(R.string.identity_import_error_incorrect_passphrase))
-                }
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = certificateManager.importIdentity(pemData, passphrase)
+            withContext(Dispatchers.Main) {
+                when (result) {
+                    is IdentityImportStoreResult.Success -> onResult(true, null)
+                    is IdentityImportStoreResult.NeedsPassphrase -> {
+                        onResult(false, getApplication<Application>().getString(R.string.identity_import_error_incorrect_passphrase))
+                    }
 
-                is IdentityImportStoreResult.Error -> onResult(false, result.message)
+                    is IdentityImportStoreResult.Error -> onResult(false, result.message)
+                }
             }
         }
     }
@@ -1105,20 +1112,21 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         passphrase: String?,
         onResult: (success: Boolean, errorMessage: String?) -> Unit
     ) {
-        viewModelScope.launch {
-            when (
-                val result = certificateManager.importIdentity(
-                    pemData = newPemData,
-                    passphrase = passphrase,
-                    replaceAlias = existingAlias
-                )
-            ) {
-                is IdentityImportStoreResult.Success -> onResult(true, null)
-                is IdentityImportStoreResult.NeedsPassphrase -> {
-                    onResult(false, getApplication<Application>().getString(R.string.identity_import_error_incorrect_passphrase))
-                }
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = certificateManager.importIdentity(
+                pemData = newPemData,
+                passphrase = passphrase,
+                replaceAlias = existingAlias
+            )
+            withContext(Dispatchers.Main) {
+                when (result) {
+                    is IdentityImportStoreResult.Success -> onResult(true, null)
+                    is IdentityImportStoreResult.NeedsPassphrase -> {
+                        onResult(false, getApplication<Application>().getString(R.string.identity_import_error_incorrect_passphrase))
+                    }
 
-                is IdentityImportStoreResult.Error -> onResult(false, result.message)
+                    is IdentityImportStoreResult.Error -> onResult(false, result.message)
+                }
             }
         }
     }

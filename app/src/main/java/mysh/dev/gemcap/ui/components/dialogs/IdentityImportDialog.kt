@@ -1,5 +1,6 @@
 package mysh.dev.gemcap.ui.components.dialogs
 
+import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -25,16 +26,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import mysh.dev.gemcap.R
 import mysh.dev.gemcap.data.ImportResult
 import mysh.dev.gemcap.domain.ClientCertificate
+import java.io.BufferedInputStream
+import java.io.ByteArrayOutputStream
 import java.security.cert.X509Certificate
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 private const val MAX_PEM_FILE_BYTES = 1024 * 1024L // 1 MB
+private class PemFileTooLargeException : Exception()
 
 private sealed class IdentityImportDialogState {
     object SelectingFile : IdentityImportDialogState()
@@ -60,6 +65,29 @@ private data class ParsedIdentity(
     val email: String?,
     val organization: String?
 )
+
+@Throws(PemFileTooLargeException::class)
+private fun readPemDataWithLimit(context: Context, uri: Uri): String? {
+    return context.contentResolver.openInputStream(uri)?.use { stream ->
+        BufferedInputStream(stream).use { input ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(8 * 1024)
+            var totalBytes = 0L
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) {
+                    break
+                }
+                totalBytes += read
+                if (totalBytes > MAX_PEM_FILE_BYTES) {
+                    throw PemFileTooLargeException()
+                }
+                output.write(buffer, 0, read)
+            }
+            output.toByteArray().toString(Charsets.UTF_8)
+        }
+    }
+}
 
 /**
  * Dialog for importing a client identity from a PEM file.
@@ -149,9 +177,7 @@ fun IdentityImportDialog(
                 )
                 return@rememberLauncherForActivityResult
             }
-            val pemData = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use {
-                it.readText()
-            }
+            val pemData = readPemDataWithLimit(context, uri)
             if (pemData.isNullOrBlank()) {
                 state = IdentityImportDialogState.Error(
                     context.getString(R.string.identity_import_error_file_read, "empty file")
@@ -162,6 +188,10 @@ fun IdentityImportDialog(
                     handleParseResult(pemData, null, result)
                 }
             }
+        } catch (_: PemFileTooLargeException) {
+            state = IdentityImportDialogState.Error(
+                context.getString(R.string.identity_import_error_file_too_large)
+            )
         } catch (e: Exception) {
             state = IdentityImportDialogState.Error(
                 context.getString(
@@ -220,20 +250,33 @@ fun IdentityImportDialog(
                             .verticalScroll(rememberScrollState())
                     ) {
                         Text(
-                            text = "Review the identity details:",
+                            text = stringResource(R.string.identity_import_review_details),
                             style = MaterialTheme.typography.bodyMedium
                         )
                         Spacer(modifier = Modifier.height(12.dp))
-                        IdentityDetailRow("Common Name:", parsed.commonName)
-                        parsed.email?.let { IdentityDetailRow("Email:", it) }
-                        parsed.organization?.let { IdentityDetailRow("Organization:", it) }
                         IdentityDetailRow(
-                            "Valid Until:",
+                            stringResource(R.string.identity_import_common_name_label),
+                            parsed.commonName
+                        )
+                        parsed.email?.let {
+                            IdentityDetailRow(
+                                stringResource(R.string.identity_import_email_label),
+                                it
+                            )
+                        }
+                        parsed.organization?.let {
+                            IdentityDetailRow(
+                                stringResource(R.string.identity_import_organization_label),
+                                it
+                            )
+                        }
+                        IdentityDetailRow(
+                            stringResource(R.string.identity_import_valid_until_label),
                             SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
                                 .format(Date(parsed.certificate.notAfter.time))
                         )
                         IdentityDetailRow(
-                            "Fingerprint:",
+                            stringResource(R.string.identity_import_fingerprint_label),
                             parsed.fingerprint.take(23) + "..."
                         )
                     }
@@ -293,7 +336,7 @@ fun IdentityImportDialog(
             AlertDialog(
                 modifier = modifier,
                 onDismissRequest = {},
-                title = { Text("Importing...") },
+                title = { Text(stringResource(R.string.identity_importing)) },
                 text = { CircularProgressIndicator() },
                 confirmButton = {},
                 dismissButton = {}
@@ -304,11 +347,11 @@ fun IdentityImportDialog(
             AlertDialog(
                 modifier = modifier,
                 onDismissRequest = { state = IdentityImportDialogState.SelectingFile },
-                title = { Text("Import Error") },
+                title = { Text(stringResource(R.string.identity_import_error_title)) },
                 text = { Text(dialogState.message) },
                 confirmButton = {
                     Button(onClick = { state = IdentityImportDialogState.SelectingFile }) {
-                        Text("Try Again")
+                        Text(stringResource(R.string.identity_import_try_again))
                     }
                 },
                 dismissButton = {
@@ -323,11 +366,11 @@ fun IdentityImportDialog(
             AlertDialog(
                 modifier = modifier,
                 onDismissRequest = onDismiss,
-                title = { Text("Import Successful") },
+                title = { Text(stringResource(R.string.identity_import_success_title)) },
                 text = { Text(context.getString(R.string.identity_import_success)) },
                 confirmButton = {
                     Button(onClick = onDismiss) {
-                        Text("Done")
+                        Text(stringResource(R.string.identity_import_done))
                     }
                 },
                 dismissButton = {}

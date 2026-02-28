@@ -274,8 +274,8 @@ class CertificateManager(
 
     // Certificate details
     fun showDetails(certificate: ClientCertificate) {
-        val (_, x509Cert) = certRepository.getIdentityStorage().getIdentity(certificate.alias)
-            ?: (null to null)
+        val identityPair = certRepository.getIdentityStorage().getIdentity(certificate.alias)
+        val x509Cert = identityPair?.second
 
         updateDialogState(
             getDialogState().copy(

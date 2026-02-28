@@ -12,6 +12,8 @@ import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.nio.charset.StandardCharsets
 import java.security.KeyFactory
 import java.security.KeyStore
@@ -95,15 +97,7 @@ class EncryptedIdentityStorage private constructor(
                 output.writeInt(ciphertext.size)
                 output.write(ciphertext)
             }
-            if (target.exists() && !target.delete()) {
-                temp.delete()
-                return false
-            }
-            if (!temp.renameTo(target)) {
-                temp.delete()
-                return false
-            }
-            true
+            safeSwapTempIntoTarget(temp, target)
         } catch (_: Exception) {
             temp.delete()
             false
@@ -224,6 +218,67 @@ class EncryptedIdentityStorage private constructor(
             }
         }
         return success
+    }
+
+    private fun safeSwapTempIntoTarget(temp: File, target: File): Boolean {
+        val backup = File(target.parentFile, "${target.name}.bak")
+        if (backup.exists() && !backup.delete()) {
+            temp.delete()
+            return false
+        }
+
+        val hadTarget = target.exists()
+        if (hadTarget && !moveFileWithAtomicFallback(target, backup)) {
+            temp.delete()
+            return false
+        }
+
+        if (moveFileWithAtomicFallback(temp, target)) {
+            if (hadTarget && backup.exists()) {
+                backup.delete()
+            }
+            return true
+        }
+
+        temp.delete()
+        if (hadTarget) {
+            if (target.exists()) {
+                target.delete()
+            }
+            moveFileWithAtomicFallback(backup, target)
+        }
+        return false
+    }
+
+    private fun moveFileWithAtomicFallback(source: File, destination: File): Boolean {
+        if (!source.exists()) {
+            return false
+        }
+
+        return try {
+            Files.move(
+                source.toPath(),
+                destination.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING
+            )
+            true
+        } catch (_: Exception) {
+            try {
+                Files.move(
+                    source.toPath(),
+                    destination.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING
+                )
+                true
+            } catch (_: Exception) {
+                if (destination.exists() && !destination.delete()) {
+                    false
+                } else {
+                    source.renameTo(destination)
+                }
+            }
+        }
     }
 
     private fun getIdentityFile(alias: String): File {

@@ -95,7 +95,16 @@ class ClientCertRepository(context: Context) {
     }
 
     fun removeCertificate(alias: String) {
-        identityStorage.deleteIdentity(alias)
+        val deleteSucceeded = try {
+            identityStorage.deleteIdentity(alias)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to delete identity for alias: $alias", e)
+            false
+        }
+        if (!deleteSucceeded) {
+            Log.e(TAG, "Failed to delete identity for alias: $alias; metadata unchanged")
+            return
+        }
         val certificates = getCertificates().toMutableList()
         certificates.removeAll { it.alias == alias }
         saveCertificates(certificates)
@@ -272,7 +281,16 @@ class ClientCertRepository(context: Context) {
         }
 
         if (hadLegacyEntries) {
-            identityStorage.clearAll()
+            val cleanupSucceeded = try {
+                identityStorage.clearAll()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed during beta identity file cleanup", e)
+                false
+            }
+            if (!cleanupSucceeded) {
+                Log.e(TAG, "Beta migration cleanup incomplete; migration will retry on next startup")
+                return
+            }
         }
 
         prefs.edit {
