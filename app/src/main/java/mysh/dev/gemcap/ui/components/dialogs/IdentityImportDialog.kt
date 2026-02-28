@@ -316,12 +316,12 @@ private fun ParsingIndicator(
     AlertDialog(
         modifier = modifier,
         onDismissRequest = onDismiss,
-        title = { Text(text = stringResource(R.string.identity_import_title)) },
+        title = { Text(text = stringResource(R.string.identity_management_import)) },
         text = { CircularProgressIndicator() },
         confirmButton = {},
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.identity_import_button_cancel))
+                Text(stringResource(R.string.cancel_button))
             }
         }
     )
@@ -369,7 +369,7 @@ private fun PreviewDialog(
     AlertDialog(
         modifier = modifier,
         onDismissRequest = onDismiss,
-        title = { Text(text = stringResource(R.string.identity_import_title)) },
+        title = { Text(text = stringResource(R.string.identity_management_import)) },
         text = {
             Column(
                 modifier = Modifier
@@ -430,7 +430,7 @@ private fun PreviewDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.identity_import_button_cancel))
+                Text(stringResource(R.string.cancel_button))
             }
         }
     )
@@ -506,7 +506,7 @@ private fun ErrorDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.identity_import_button_cancel))
+                Text(stringResource(R.string.cancel_button))
             }
         }
     )

@@ -288,6 +288,7 @@ class ClientCertRepository(context: Context) {
         }
 
         var hadLegacyEntries = false
+        var keyStoreCleanupSucceeded = true
         try {
             val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
             val aliases = keyStore.aliases()
@@ -295,11 +296,25 @@ class ClientCertRepository(context: Context) {
                 val alias = aliases.nextElement()
                 if (alias.startsWith(ALIAS_PREFIX)) {
                     hadLegacyEntries = true
-                    runCatching { keyStore.deleteEntry(alias) }
+                    val deleteResult = runCatching { keyStore.deleteEntry(alias) }
+                    if (deleteResult.isFailure) {
+                        keyStoreCleanupSucceeded = false
+                        Log.e(
+                            TAG,
+                            "Failed to delete legacy KeyStore alias during beta migration: $alias",
+                            deleteResult.exceptionOrNull()
+                        )
+                    }
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed during beta KeyStore migration cleanup", e)
+            return
+        }
+
+        if (hadLegacyEntries && !keyStoreCleanupSucceeded) {
+            Log.e(TAG, "Beta migration cleanup incomplete; migration will retry on next startup")
+            return
         }
 
         if (hadLegacyEntries) {

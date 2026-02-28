@@ -65,9 +65,8 @@
     <string name="embedded_media_error_too_many_redirects">Too many redirects (max %1$d)</string>
 
     <!-- Identity Import/Export -->
-    <string name="identity_import_title">Import Identity</string>
+    <string name="identity_management_import">Import Identity</string>
     <string name="identity_import_button_import">Import</string>
-    <string name="identity_import_button_cancel">Cancel</string>
     <string name="identity_import_error_invalid_pem">Failed to parse PEM: %1$s</string>
     <string name="identity_import_error_file_read">Failed to read file: %1$s</string>
     <string name="identity_import_error_incorrect_passphrase">Incorrect passphrase</string>
