@@ -1,7 +1,7 @@
 package mysh.dev.gemcap.network
 
 import android.util.Log
-import mysh.dev.gemcap.data.ClientCertKeyStore
+import mysh.dev.gemcap.data.EncryptedIdentityStorage
 import java.net.Socket
 import java.security.Principal
 import java.security.PrivateKey
@@ -18,14 +18,18 @@ private const val TAG = "SelectiveKeyManager"
  * when alias selection depends on thread-local state.
  */
 class SelectiveKeyManager(
-    private val keyStore: ClientCertKeyStore,
+    private val identityStorage: EncryptedIdentityStorage,
     private val alias: String?
 ) : X509KeyManager {
 
+    private val cachedIdentity: Pair<PrivateKey, X509Certificate>? by lazy {
+        alias?.let { identityStorage.getIdentity(it) }
+    }
+
     private fun selectedAliasOrNull(): String? {
         val selectedAlias = alias ?: return null
-        if (!keyStore.containsAlias(selectedAlias)) {
-            Log.w(TAG, "Selected alias not found in KeyStore: $selectedAlias")
+        if (cachedIdentity == null) {
+            Log.w(TAG, "Selected alias not found in storage: $selectedAlias")
             return null
         }
         return selectedAlias
@@ -71,12 +75,14 @@ class SelectiveKeyManager(
 
     override fun getCertificateChain(alias: String?): Array<X509Certificate>? {
         if (alias == null) return null
-        return keyStore.getCertificateChain(alias)
+        val (_, certificate) = cachedIdentity ?: return null
+        return arrayOf(certificate)
     }
 
     override fun getPrivateKey(alias: String?): PrivateKey? {
         if (alias == null) return null
-        return keyStore.getPrivateKey(alias)
+        val (privateKey, _) = cachedIdentity ?: return null
+        return privateKey
     }
 
     private fun selectedAliasMatching(
@@ -84,10 +90,9 @@ class SelectiveKeyManager(
         issuers: Array<out Principal>?
     ): String? {
         val selectedAlias = selectedAliasOrNull() ?: return null
-        val certificateChain = keyStore.getCertificateChain(selectedAlias)
-            ?.takeIf { it.isNotEmpty() }
-            ?: return null
-        val leafCertificate = certificateChain.first()
+        val (_, certificate) = cachedIdentity ?: return null
+        val certificateChain = arrayOf(certificate)
+        val leafCertificate = certificate
 
         if (!matchesAnyKeyType(leafCertificate, keyTypes)) {
             return null

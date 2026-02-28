@@ -1,7 +1,7 @@
 package mysh.dev.gemcap.network
 
 import android.util.Log
-import mysh.dev.gemcap.data.ClientCertKeyStore
+import mysh.dev.gemcap.data.EncryptedIdentityStorage
 import mysh.dev.gemcap.data.ClientCertRepository
 import mysh.dev.gemcap.domain.ClientCertificate
 import org.bouncycastle.asn1.x500.X500NameBuilder
@@ -35,7 +35,7 @@ data class IdentityParams(
 )
 
 class CertificateGenerator(
-    private val keyStore: ClientCertKeyStore,
+    private val identityStorage: EncryptedIdentityStorage,
     private val repository: ClientCertRepository
 ) {
 
@@ -50,8 +50,9 @@ class CertificateGenerator(
         val certificate = createSelfSignedCertificate(keyPair, params)
         Log.d(TAG, "Created certificate for CN: ${params.commonName}")
 
-        keyStore.importKeyPair(alias, keyPair.private, arrayOf(certificate))
-        Log.d(TAG, "Imported key pair into Android KeyStore: $alias")
+        val stored = identityStorage.storeIdentity(alias, keyPair.private, certificate)
+        check(stored) { "Failed to store generated identity" }
+        Log.d(TAG, "Stored encrypted identity: $alias")
 
         val fingerprint = Fingerprints.certSha256Hex(
             certificate,

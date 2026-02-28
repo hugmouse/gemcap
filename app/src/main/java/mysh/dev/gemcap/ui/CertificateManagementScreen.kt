@@ -1,5 +1,7 @@
 package mysh.dev.gemcap.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -29,9 +31,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.ToggleOff
 import androidx.compose.material.icons.filled.ToggleOn
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
@@ -44,6 +48,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -61,8 +69,10 @@ fun CertificateManagementScreen(
     certificates: ImmutableList<ClientCertificate>,
     onCertificateClick: (ClientCertificate) -> Unit,
     onGenerateClick: () -> Unit,
+    onImportClick: () -> Unit,
     onToggleActive: (String, Boolean) -> Unit,
     onDelete: (String) -> Unit,
+    onExport: ((ClientCertificate, android.net.Uri) -> Unit)? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     currentHost: String = "",
@@ -70,6 +80,16 @@ fun CertificateManagementScreen(
     onUseOnClick: ((ClientCertificate) -> Unit)? = null
 ) {
     BackHandler(onBack = onDismiss)
+    var pendingExportCertificate by remember { mutableStateOf<ClientCertificate?>(null) }
+    val exportDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/x-pem-file")
+    ) { uri ->
+        val certificate = pendingExportCertificate
+        pendingExportCertificate = null
+        if (uri != null && certificate != null && onExport != null) {
+            onExport(certificate, uri)
+        }
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -104,15 +124,25 @@ fun CertificateManagementScreen(
             }
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = onGenerateClick,
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.windowInsetsPadding(
                     WindowInsets.safeDrawing.only(
                         WindowInsetsSides.Bottom + WindowInsetsSides.End
                     )
                 )
             ) {
-                Icon(Icons.Default.Add, contentDescription = "New Identity")
+                FloatingActionButton(
+                    onClick = onImportClick,
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                ) {
+                    Icon(Icons.Default.Upload, contentDescription = "Import Identity")
+                }
+                FloatingActionButton(
+                    onClick = onGenerateClick
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "New Identity")
+                }
             }
         }
     ) { innerPadding ->
@@ -168,6 +198,12 @@ fun CertificateManagementScreen(
                                 )
                             },
                             onDelete = { onDelete(certificate.alias) },
+                            onExport = onExport?.let {
+                                {
+                                    pendingExportCertificate = certificate
+                                    exportDocumentLauncher.launch(suggestExportFileName(certificate))
+                                }
+                            },
                             onUseOnClick = onUseOnClick?.let { { it(certificate) } },
                             currentHost = currentHost
                         )
@@ -185,6 +221,7 @@ private fun IdentityCard(
     onClick: () -> Unit,
     onToggleActive: () -> Unit,
     onDelete: () -> Unit,
+    onExport: (() -> Unit)?,
     onUseOnClick: (() -> Unit)?,
     currentHost: String
 ) {
@@ -249,6 +286,15 @@ private fun IdentityCard(
                                 MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                    if (onExport != null && certificate.isExportable) {
+                        IconButton(onClick = onExport) {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = "Export",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                     IconButton(onClick = onDelete) {
                         Icon(
@@ -353,4 +399,15 @@ private fun UsageChip(usage: IdentityUsage) {
             )
         }
     )
+}
+
+private fun suggestExportFileName(certificate: ClientCertificate): String {
+    val fallback = "identity-${certificate.alias.takeLast(8)}"
+    val baseName = certificate.commonName.trim().ifBlank { fallback }
+        .replace(Regex("[^A-Za-z0-9._-]"), "_")
+    return if (baseName.endsWith(".pem", ignoreCase = true)) {
+        baseName
+    } else {
+        "$baseName.pem"
+    }
 }

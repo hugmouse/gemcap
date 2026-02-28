@@ -1,5 +1,7 @@
 package mysh.dev.gemcap.ui.callbacks
 
+import android.net.Uri
+import mysh.dev.gemcap.data.ImportResult
 import mysh.dev.gemcap.data.FontSize
 import mysh.dev.gemcap.data.SearchEngine
 import mysh.dev.gemcap.data.ThemeMode
@@ -65,6 +67,26 @@ interface CertificateCallbacks {
     fun onSetIdentityUsage(alias: String, usage: IdentityUsage?)
 
     fun onConnectionInfoClick()
+Le
+    // Import/Export
+    fun onShowIdentityImport()
+    fun onDismissIdentityImport()
+    fun onParseIdentity(pemData: String, passphrase: String?, onResult: (ImportResult) -> Unit)
+    fun onImportIdentity(
+        pemData: String,
+        passphrase: String?,
+        onResult: (success: Boolean, errorMessage: String?) -> Unit
+    )
+
+    fun onCheckDuplicateIdentity(fingerprint: String): ClientCertificate?
+    fun onReplaceIdentity(
+        existingAlias: String,
+        newPemData: String,
+        passphrase: String?,
+        onResult: (success: Boolean, errorMessage: String?) -> Unit
+    )
+
+    fun onExportIdentity(certificate: ClientCertificate, targetUri: Uri)
 }
 
 interface DialogCallbacks {

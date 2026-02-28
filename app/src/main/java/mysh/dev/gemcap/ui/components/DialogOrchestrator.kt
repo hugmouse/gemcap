@@ -15,6 +15,7 @@ import mysh.dev.gemcap.ui.components.dialogs.CertificateSelectionDialog
 import mysh.dev.gemcap.ui.components.dialogs.DomainMismatchDialog
 import mysh.dev.gemcap.ui.components.dialogs.DownloadPromptDialog
 import mysh.dev.gemcap.ui.components.dialogs.IdentityGenerationDialog
+import mysh.dev.gemcap.ui.components.dialogs.IdentityImportDialog
 import mysh.dev.gemcap.ui.components.dialogs.IdentityUsageDialog
 import mysh.dev.gemcap.ui.components.dialogs.InputPromptDialog
 import mysh.dev.gemcap.ui.components.dialogs.TofuWarningDialog
@@ -104,14 +105,37 @@ fun DialogOrchestrator(
             certificates = certificateState.clientCertificates,
             onCertificateClick = { callbacks.onShowCertificateDetails(it) },
             onGenerateClick = { callbacks.onShowCertificateGenerationDialog() },
+            onImportClick = { callbacks.onShowIdentityImport() },
             onToggleActive = { alias, active ->
                 callbacks.onToggleCertificateActive(alias, active)
             },
             onDelete = { callbacks.onDeleteCertificate(it) },
+            onExport = { certificate, targetUri ->
+                callbacks.onExportIdentity(certificate, targetUri)
+            },
             onDismiss = { callbacks.onDismissCertificates() },
             currentHost = currentHost,
             currentPath = currentPath,
             onUseOnClick = { callbacks.onShowIdentityUsageDialog(it) }
+        )
+    }
+
+    // Identity import dialog
+    if (dialogState.showIdentityImport) {
+        IdentityImportDialog(
+            onDismiss = { callbacks.onDismissIdentityImport() },
+            onParseIdentity = { pemData, passphrase, onResult ->
+                callbacks.onParseIdentity(pemData, passphrase, onResult)
+            },
+            onImportIdentity = { pemData, passphrase, onResult ->
+                callbacks.onImportIdentity(pemData, passphrase, onResult)
+            },
+            onCheckDuplicate = { fingerprint ->
+                callbacks.onCheckDuplicateIdentity(fingerprint)
+            },
+            onReplaceIdentity = { existingAlias, newPemData, passphrase, onResult ->
+                callbacks.onReplaceIdentity(existingAlias, newPemData, passphrase, onResult)
+            }
         )
     }
 

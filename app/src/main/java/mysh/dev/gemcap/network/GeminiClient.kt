@@ -9,7 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
-import mysh.dev.gemcap.data.ClientCertKeyStore
+import mysh.dev.gemcap.data.EncryptedIdentityStorage
 import mysh.dev.gemcap.domain.GeminiResponse
 import mysh.dev.gemcap.domain.ServerCertInfo
 import org.bouncycastle.asn1.x500.X500Name
@@ -85,18 +85,18 @@ sealed class GeminiFetchResult {
 
 class GeminiClient(
     context: Context,
+    private val identityStorage: EncryptedIdentityStorage,
     private val maxResponseBodyBytes: Int = DEFAULT_MAX_RESPONSE_BODY_BYTES
 ) {
 
     private val tofuTrustManager = TofuTrustManager(context)
-    private val keyStore = ClientCertKeyStore()
 
     init {
         require(maxResponseBodyBytes > 0) { "maxResponseBodyBytes must be > 0" }
     }
 
     private fun createSslContext(certAlias: String?): SSLContext {
-        val keyManager = SelectiveKeyManager(keyStore, certAlias)
+        val keyManager = SelectiveKeyManager(identityStorage, certAlias)
         return SSLContext.getInstance("TLS").apply {
             init(
                 arrayOf<KeyManager>(keyManager),

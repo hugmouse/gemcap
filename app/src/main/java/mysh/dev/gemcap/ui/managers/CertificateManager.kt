@@ -8,6 +8,8 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import mysh.dev.gemcap.data.ClientCertRepository
+import mysh.dev.gemcap.data.IdentityImportStoreResult
+import mysh.dev.gemcap.data.ImportResult
 import mysh.dev.gemcap.domain.CertificateDetailsState
 import mysh.dev.gemcap.domain.CertificateRequiredState
 import mysh.dev.gemcap.domain.ClientCertificate
@@ -242,10 +244,38 @@ class CertificateManager(
         refresh()
     }
 
+    fun parseIdentityPem(pemData: String, passphrase: String?): ImportResult {
+        return certRepository.parseIdentityPem(pemData, passphrase)
+    }
+
+    fun importIdentity(
+        pemData: String,
+        passphrase: String?,
+        replaceAlias: String? = null
+    ): IdentityImportStoreResult {
+        val result = certRepository.importIdentity(
+            pemData = pemData,
+            passphrase = passphrase,
+            replaceAlias = replaceAlias
+        )
+        if (result is IdentityImportStoreResult.Success) {
+            refresh()
+        }
+        return result
+    }
+
+    fun checkDuplicateIdentity(fingerprint: String): ClientCertificate? {
+        return certRepository.findByFingerprint(fingerprint)
+    }
+
+    fun exportIdentity(alias: String): String? {
+        return certRepository.exportIdentity(alias)
+    }
+
     // Certificate details
     fun showDetails(certificate: ClientCertificate) {
-        val keyStore = certRepository.getKeyStore()
-        val x509Cert = keyStore.getCertificate(certificate.alias)
+        val (_, x509Cert) = certRepository.getIdentityStorage().getIdentity(certificate.alias)
+            ?: (null to null)
 
         updateDialogState(
             getDialogState().copy(

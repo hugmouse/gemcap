@@ -72,7 +72,8 @@ data class DialogState(
     val identityUsage: IdentityUsageState? = null,
     val backoff: BackoffState? = null,
     val downloadMessage: String? = null,
-    val tofuDomainMismatch: TofuDomainMismatchState? = null
+    val tofuDomainMismatch: TofuDomainMismatchState? = null,
+    val showIdentityImport: Boolean = false
 )
 
 /**

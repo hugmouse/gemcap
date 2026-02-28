@@ -1,5 +1,6 @@
 package mysh.dev.gemcap.ui.callbacks
 
+import android.net.Uri
 import android.view.View
 import androidx.compose.runtime.Stable
 import androidx.compose.ui.unit.Density
@@ -86,6 +87,33 @@ class BrowserCallbacksImpl(
         viewModel.setIdentityUsage(alias, usage)
 
     override fun onConnectionInfoClick() = viewModel.showConnectionInfo()
+
+    // Import/Export
+    override fun onShowIdentityImport() = viewModel.showIdentityImportDialog()
+    override fun onDismissIdentityImport() = viewModel.dismissIdentityImportDialog()
+    override fun onParseIdentity(
+        pemData: String,
+        passphrase: String?,
+        onResult: (mysh.dev.gemcap.data.ImportResult) -> Unit
+    ) = viewModel.parseIdentityPem(pemData, passphrase, onResult)
+
+    override fun onImportIdentity(
+        pemData: String,
+        passphrase: String?,
+        onResult: (success: Boolean, errorMessage: String?) -> Unit
+    ) = viewModel.importIdentity(pemData, passphrase, onResult)
+
+    override fun onCheckDuplicateIdentity(fingerprint: String): ClientCertificate? =
+        viewModel.checkDuplicateIdentity(fingerprint)
+    override fun onReplaceIdentity(
+        existingAlias: String,
+        newPemData: String,
+        passphrase: String?,
+        onResult: (success: Boolean, errorMessage: String?) -> Unit
+    ) = viewModel.replaceIdentity(existingAlias, newPemData, passphrase, onResult)
+
+    override fun onExportIdentity(certificate: ClientCertificate, targetUri: Uri) =
+        viewModel.exportIdentity(certificate, targetUri)
 
     // DialogCallbacks
     override fun onSubmitInput(input: String) = viewModel.submitInput(input)

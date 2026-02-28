@@ -6,67 +6,49 @@ import androidx.core.content.edit
 import mysh.dev.gemcap.domain.ClientCertificate
 import mysh.dev.gemcap.domain.IdentityUsage
 import mysh.dev.gemcap.domain.UsageType
+import mysh.dev.gemcap.util.PemUtils
 import org.json.JSONArray
 import org.json.JSONObject
+import java.security.KeyStore
 
 private const val TAG = "ClientCertRepository"
 
 /**
- * Repository for client certificate (identity) metadata
- * Keys are stored in Android KeyStore (via ClientCertKeyStore)
- * Metadata (usages, name, fingerprint, etc.) is stored in SharedPreferences
+ * Repository for client certificate (identity) metadata.
+ * Private keys/certificates are stored via EncryptedIdentityStorage and
+ * metadata (usages, names, fingerprints, state) is stored in SharedPreferences.
  */
 class ClientCertRepository(context: Context) {
 
     private val prefs = context.getSharedPreferences("client_certs", Context.MODE_PRIVATE)
-    private val keyStore = ClientCertKeyStore()
+    private val identityStorage = EncryptedIdentityStorage(context)
 
     companion object {
         private const val KEY_CERTIFICATES = "certificates"
+        private const val KEY_BETA_MIGRATION_DONE = "beta_storage_migration_done"
+        private const val KEY_BETA_MIGRATION_NOTICE_PENDING = "beta_storage_migration_notice_pending"
         const val ALIAS_PREFIX = "gemini_client_cert_"
     }
 
+    init {
+        runBetaMigrationIfNeeded()
+    }
+
     /**
-     * Retrieves all stored identities
+     * Retrieves all stored identities.
      */
     fun getCertificates(): List<ClientCertificate> {
         val json = prefs.getString(KEY_CERTIFICATES, null) ?: return emptyList()
         return try {
             val array = JSONArray(json)
-            (0 until array.length()).mapNotNull { i ->
-                try {
-                    val obj = array.getJSONObject(i)
-
-                    val usages = if (obj.has("usages")) {
-                        val usagesArray = obj.getJSONArray("usages")
-                        (0 until usagesArray.length()).map { j ->
-                            val usageObj = usagesArray.getJSONObject(j)
-                            IdentityUsage(
-                                host = usageObj.getString("host"),
-                                type = UsageType.valueOf(usageObj.getString("type")),
-                                path = usageObj.optString("path", "/")
-                            )
-                        }
-                    } else {
-                        emptyList()
-                    }
-
-                    ClientCertificate(
-                        alias = obj.getString("alias"),
-                        commonName = obj.getString("commonName"),
-                        email = obj.optString("email", "").takeIf { it.isNotEmpty() },
-                        organization = obj.optString("organization", "").takeIf { it.isNotEmpty() },
-                        usages = usages,
-                        fingerprint = obj.getString("fingerprint"),
-                        createdAt = obj.getLong("createdAt"),
-                        expiresAt = obj.getLong("expiresAt"),
-                        isActive = obj.optBoolean("isActive", true)
-                    )
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to parse certificate entry", e)
-                    null
-                }
+            val parsed = (0 until array.length()).mapNotNull { i ->
+                parseCertificateEntry(array.getJSONObject(i))
             }
+            val available = parsed.filter { identityStorage.containsIdentity(it.alias) }
+            if (available.size != parsed.size) {
+                saveCertificates(available)
+            }
+            available
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse certificates JSON", e)
             emptyList()
@@ -75,7 +57,6 @@ class ClientCertRepository(context: Context) {
 
     fun addCertificate(certificate: ClientCertificate) {
         val certificates = getCertificates().toMutableList()
-        // Remove any existing cert with the same alias
         certificates.removeAll { it.alias == certificate.alias }
         certificates.add(0, certificate)
         saveCertificates(certificates)
@@ -85,12 +66,13 @@ class ClientCertRepository(context: Context) {
     fun addUsage(alias: String, usage: IdentityUsage) {
         val certificates = getCertificates().map { cert ->
             if (cert.alias == alias) {
-                // Remove any existing usage with same host/path, then add new one
                 val updatedUsages = cert.usages.filterNot {
                     it.host == usage.host && it.path == usage.path
                 } + usage
                 cert.copy(usages = updatedUsages)
-            } else cert
+            } else {
+                cert
+            }
         }
         saveCertificates(certificates)
         Log.d(TAG, "Added usage to $alias: $usage")
@@ -99,17 +81,21 @@ class ClientCertRepository(context: Context) {
     fun removeUsage(alias: String, usage: IdentityUsage) {
         val certificates = getCertificates().map { cert ->
             if (cert.alias == alias) {
-                cert.copy(usages = cert.usages.filterNot {
-                    it.host == usage.host && it.type == usage.type && it.path == usage.path
-                })
-            } else cert
+                cert.copy(
+                    usages = cert.usages.filterNot {
+                        it.host == usage.host && it.type == usage.type && it.path == usage.path
+                    }
+                )
+            } else {
+                cert
+            }
         }
         saveCertificates(certificates)
         Log.d(TAG, "Removed usage from $alias: $usage")
     }
 
     fun removeCertificate(alias: String) {
-        keyStore.deleteEntry(alias)
+        identityStorage.deleteIdentity(alias)
         val certificates = getCertificates().toMutableList()
         certificates.removeAll { it.alias == alias }
         saveCertificates(certificates)
@@ -135,12 +121,168 @@ class ClientCertRepository(context: Context) {
     fun findBestMatch(host: String, path: String): ClientCertificate? {
         return findMatchingCertificates(host, path).firstOrNull()
     }
-    
+
+    fun findByFingerprint(fingerprint: String): ClientCertificate? {
+        return getCertificates().firstOrNull { it.fingerprint == fingerprint }
+    }
+
     fun generateAlias(): String {
         return "$ALIAS_PREFIX${System.currentTimeMillis()}"
     }
 
-    fun getKeyStore(): ClientCertKeyStore = keyStore
+    fun getIdentityStorage(): EncryptedIdentityStorage = identityStorage
+
+    fun parseIdentityPem(pemData: String, passphrase: String?): ImportResult {
+        return identityStorage.importFromPem(pemData, passphrase)
+    }
+
+    fun importIdentity(
+        pemData: String,
+        passphrase: String?,
+        replaceAlias: String? = null
+    ): IdentityImportStoreResult {
+        return when (val parsed = identityStorage.importFromPem(pemData, passphrase)) {
+            is ImportResult.NeedsPassphrase -> IdentityImportStoreResult.NeedsPassphrase
+            is ImportResult.Error -> IdentityImportStoreResult.Error(parsed.message)
+            is ImportResult.Success -> {
+                if (replaceAlias == null) {
+                    val duplicate = findByFingerprint(parsed.fingerprint)
+                    if (duplicate != null) {
+                        return IdentityImportStoreResult.Error("An identity with this fingerprint already exists")
+                    }
+                }
+
+                val alias = replaceAlias ?: generateAlias()
+                val existing = replaceAlias?.let { existingAlias ->
+                    getCertificates().find { it.alias == existingAlias }
+                }
+                val stored = identityStorage.storeIdentity(
+                    alias = alias,
+                    privateKey = parsed.privateKey,
+                    certificate = parsed.certificate
+                )
+                if (!stored) {
+                    IdentityImportStoreResult.Error("Failed to store imported identity")
+                } else {
+                    val imported = buildClientCertificate(
+                        alias = alias,
+                        certificate = parsed.certificate,
+                        fingerprint = parsed.fingerprint,
+                        previous = existing
+                    )
+                    addCertificate(imported)
+                    IdentityImportStoreResult.Success(imported)
+                }
+            }
+        }
+    }
+
+    fun exportIdentity(alias: String): String? {
+        val pem = identityStorage.exportAsPem(alias) ?: return null
+        return PemUtils.combinePem(
+            PemUtils.PemEncoding(
+                certificatePem = pem.certificatePem,
+                privateKeyPem = pem.privateKeyPem
+            )
+        )
+    }
+
+    fun consumeBetaMigrationNotice(): Boolean {
+        val pending = prefs.getBoolean(KEY_BETA_MIGRATION_NOTICE_PENDING, false)
+        if (pending) {
+            prefs.edit { putBoolean(KEY_BETA_MIGRATION_NOTICE_PENDING, false) }
+        }
+        return pending
+    }
+
+    private fun parseCertificateEntry(obj: JSONObject): ClientCertificate? {
+        return try {
+            val alias = obj.getString("alias")
+
+            val usages = if (obj.has("usages")) {
+                val usagesArray = obj.getJSONArray("usages")
+                (0 until usagesArray.length()).map { j ->
+                    val usageObj = usagesArray.getJSONObject(j)
+                    IdentityUsage(
+                        host = usageObj.getString("host"),
+                        type = UsageType.valueOf(usageObj.getString("type")),
+                        path = usageObj.optString("path", "/")
+                    )
+                }
+            } else {
+                emptyList()
+            }
+
+            ClientCertificate(
+                alias = alias,
+                commonName = obj.getString("commonName"),
+                email = obj.optString("email", "").takeIf { it.isNotEmpty() },
+                organization = obj.optString("organization", "").takeIf { it.isNotEmpty() },
+                usages = usages,
+                fingerprint = obj.getString("fingerprint"),
+                createdAt = obj.getLong("createdAt"),
+                expiresAt = obj.getLong("expiresAt"),
+                isActive = obj.optBoolean("isActive", true),
+                isExportable = obj.optBoolean("isExportable", true)
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse certificate entry", e)
+            null
+        }
+    }
+
+    private fun buildClientCertificate(
+        alias: String,
+        certificate: java.security.cert.X509Certificate,
+        fingerprint: String,
+        previous: ClientCertificate?
+    ): ClientCertificate {
+        val subjectDn = certificate.subjectX500Principal.name
+        return ClientCertificate(
+            alias = alias,
+            commonName = Regex("CN=([^,]+)").find(subjectDn)?.groupValues?.get(1) ?: subjectDn,
+            email = Regex("EMAILADDRESS=([^,]+)").find(subjectDn)?.groupValues?.get(1),
+            organization = Regex("O=([^,]+)").find(subjectDn)?.groupValues?.get(1),
+            usages = previous?.usages ?: emptyList(),
+            fingerprint = fingerprint,
+            createdAt = System.currentTimeMillis(),
+            expiresAt = certificate.notAfter.time,
+            isActive = previous?.isActive ?: true
+        )
+    }
+
+    private fun runBetaMigrationIfNeeded() {
+        if (prefs.getBoolean(KEY_BETA_MIGRATION_DONE, false)) {
+            return
+        }
+
+        var hadLegacyEntries = false
+        try {
+            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            val aliases = keyStore.aliases()
+            while (aliases.hasMoreElements()) {
+                val alias = aliases.nextElement()
+                if (alias.startsWith(ALIAS_PREFIX)) {
+                    hadLegacyEntries = true
+                    runCatching { keyStore.deleteEntry(alias) }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed during beta KeyStore migration cleanup", e)
+        }
+
+        if (hadLegacyEntries) {
+            identityStorage.clearAll()
+        }
+
+        prefs.edit {
+            if (hadLegacyEntries) {
+                remove(KEY_CERTIFICATES)
+            }
+            putBoolean(KEY_BETA_MIGRATION_DONE, true)
+            putBoolean(KEY_BETA_MIGRATION_NOTICE_PENDING, hadLegacyEntries)
+        }
+    }
 
     private fun saveCertificates(certificates: List<ClientCertificate>) {
         val array = JSONArray()
@@ -151,7 +293,6 @@ class ClientCertRepository(context: Context) {
                 cert.email?.let { put("email", it) }
                 cert.organization?.let { put("organization", it) }
 
-                // Save usages as array
                 val usagesArray = JSONArray()
                 cert.usages.forEach { usage ->
                     val usageObj = JSONObject().apply {
@@ -167,9 +308,16 @@ class ClientCertRepository(context: Context) {
                 put("createdAt", cert.createdAt)
                 put("expiresAt", cert.expiresAt)
                 put("isActive", cert.isActive)
+                put("isExportable", cert.isExportable)
             }
             array.put(obj)
         }
         prefs.edit { putString(KEY_CERTIFICATES, array.toString()) }
     }
+}
+
+sealed class IdentityImportStoreResult {
+    data class Success(val certificate: ClientCertificate) : IdentityImportStoreResult()
+    data class Error(val message: String) : IdentityImportStoreResult()
+    object NeedsPassphrase : IdentityImportStoreResult()
 }

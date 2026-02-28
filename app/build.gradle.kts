@@ -13,8 +13,8 @@ android {
         applicationId = "mysh.dev.gemcap"
         minSdk = 29
         targetSdk = 36
-        versionCode = 6
-        versionName = "6.0"
+        versionCode = 10
+        versionName = "10.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
