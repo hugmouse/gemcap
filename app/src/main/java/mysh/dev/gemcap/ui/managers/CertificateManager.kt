@@ -6,8 +6,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import mysh.dev.gemcap.data.ClientCertRepository
+import mysh.dev.gemcap.data.IdentityImportStoreResult
+import mysh.dev.gemcap.data.ImportResult
 import mysh.dev.gemcap.domain.CertificateDetailsState
 import mysh.dev.gemcap.domain.CertificateRequiredState
 import mysh.dev.gemcap.domain.ClientCertificate
@@ -242,23 +246,61 @@ class CertificateManager(
         refresh()
     }
 
+    fun parseIdentityPem(pemData: String, passphrase: String?): ImportResult {
+        return certRepository.parseIdentityPem(pemData, passphrase)
+    }
+
+    fun importIdentity(
+        pemData: String,
+        passphrase: String?,
+        replaceAlias: String? = null
+    ): IdentityImportStoreResult {
+        val result = certRepository.importIdentity(
+            pemData = pemData,
+            passphrase = passphrase,
+            replaceAlias = replaceAlias
+        )
+        if (result is IdentityImportStoreResult.Success) {
+            refresh()
+        }
+        return result
+    }
+
+    fun checkDuplicateIdentity(fingerprint: String): ClientCertificate? {
+        return certRepository.findByFingerprint(fingerprint)
+    }
+
+    fun exportIdentity(alias: String): String? {
+        return certRepository.exportIdentity(alias)
+    }
+
     // Certificate details
     fun showDetails(certificate: ClientCertificate) {
-        val keyStore = certRepository.getKeyStore()
-        val x509Cert = keyStore.getCertificate(certificate.alias)
+        scope.launch {
+            val x509Cert = try {
+                withContext(Dispatchers.IO) {
+                    certRepository.getIdentityStorage().getIdentity(certificate.alias)?.second
+                }
+            } catch (e: Exception) {
+                Log.e("CertificateManager", "Failed to load identity details for ${certificate.alias}", e)
+                null
+            }
 
-        updateDialogState(
-            getDialogState().copy(
-                certificateDetails = CertificateDetailsState(
-                    commonName = certificate.commonName,
-                    fingerprint = certificate.fingerprint,
-                    issuer = x509Cert?.issuerX500Principal?.name ?: "Unknown",
-                    validFrom = x509Cert?.notBefore?.time ?: certificate.createdAt,
-                    validUntil = x509Cert?.notAfter?.time ?: certificate.expiresAt,
-                    isServerCert = false
+            withContext(Dispatchers.Main) {
+                updateDialogState(
+                    getDialogState().copy(
+                        certificateDetails = CertificateDetailsState(
+                            commonName = certificate.commonName,
+                            fingerprint = certificate.fingerprint,
+                            issuer = x509Cert?.issuerX500Principal?.name ?: "Unknown",
+                            validFrom = x509Cert?.notBefore?.time ?: certificate.createdAt,
+                            validUntil = x509Cert?.notAfter?.time ?: certificate.expiresAt,
+                            isServerCert = false
+                        )
+                    )
                 )
-            )
-        )
+            }
+        }
     }
 
     fun showTofuDetails(host: String, newFingerprint: String, newExpiry: Long) {

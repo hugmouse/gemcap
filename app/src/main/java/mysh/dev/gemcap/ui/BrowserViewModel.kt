@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
+import android.net.Uri
 import android.util.Log
 import android.view.View
 import androidx.compose.material3.SnackbarHostState
@@ -28,6 +29,8 @@ import kotlinx.coroutines.yield
 import mysh.dev.gemcap.data.BrowserRepository
 import mysh.dev.gemcap.data.ClientCertRepository
 import mysh.dev.gemcap.data.FontSize
+import mysh.dev.gemcap.data.IdentityImportStoreResult
+import mysh.dev.gemcap.data.ImportResult
 import mysh.dev.gemcap.data.SearchEngine
 import mysh.dev.gemcap.data.SettingsRepository
 import mysh.dev.gemcap.data.TabHistoryEntrySession
@@ -84,11 +87,11 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         private const val TAB_SESSION_PERSIST_DEBOUNCE_MILLIS = 400L
     }
 
-    private val client = GeminiClient(application)
-    private val repository = BrowserRepository(application)
     private val certRepository = ClientCertRepository(application)
+    private val client = GeminiClient(application, certRepository.getIdentityStorage())
+    private val repository = BrowserRepository(application)
     private val settingsRepository = SettingsRepository(application)
-    private val certGenerator = CertificateGenerator(certRepository.getKeyStore(), certRepository)
+    private val certGenerator = CertificateGenerator(certRepository.getIdentityStorage(), certRepository)
     private val backoffManager = BackoffManager()
     private val clipboardManager = application.getSystemService(ClipboardManager::class.java)
     private val embeddedMediaCache = EmbeddedMediaCache(
@@ -233,6 +236,11 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         bookmarkManager.refresh()
         historyManager.refresh()
         certificateManager.refresh()
+        if (certRepository.consumeBetaMigrationNotice()) {
+            viewModelScope.launch {
+                snackbarHostState.showSnackbar(getApplication<Application>().getString(R.string.identity_migration_notice))
+            }
+        }
         if (restoredTabSession == null) {
             loadPage(addToHistory = true)
         } else {
@@ -1055,6 +1063,97 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun showConnectionInfo() = certificateManager.showConnectionInfo()
+
+    // Identity Import/Export
+    fun showIdentityImportDialog() {
+        dialogManager.updateState(dialogManager.getState().copy(showIdentityImport = true))
+    }
+
+    fun dismissIdentityImportDialog() {
+        dialogManager.updateState(dialogManager.getState().copy(showIdentityImport = false))
+    }
+
+    fun parseIdentityPem(pemData: String, passphrase: String?, onResult: (ImportResult) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = certificateManager.parseIdentityPem(pemData, passphrase)
+            withContext(Dispatchers.Main) {
+                onResult(result)
+            }
+        }
+    }
+
+    fun importIdentity(
+        pemData: String,
+        passphrase: String?,
+        onResult: (success: Boolean, errorMessage: String?) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = certificateManager.importIdentity(pemData, passphrase)
+            withContext(Dispatchers.Main) {
+                when (result) {
+                    is IdentityImportStoreResult.Success -> onResult(true, null)
+                    is IdentityImportStoreResult.NeedsPassphrase -> {
+                        onResult(false, getApplication<Application>().getString(R.string.identity_import_error_incorrect_passphrase))
+                    }
+
+                    is IdentityImportStoreResult.Error -> onResult(false, result.message)
+                }
+            }
+        }
+    }
+
+    fun checkDuplicateIdentity(fingerprint: String): ClientCertificate? {
+        return certificateManager.checkDuplicateIdentity(fingerprint)
+    }
+
+    fun replaceIdentity(
+        existingAlias: String,
+        newPemData: String,
+        passphrase: String?,
+        onResult: (success: Boolean, errorMessage: String?) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = certificateManager.importIdentity(
+                pemData = newPemData,
+                passphrase = passphrase,
+                replaceAlias = existingAlias
+            )
+            withContext(Dispatchers.Main) {
+                when (result) {
+                    is IdentityImportStoreResult.Success -> onResult(true, null)
+                    is IdentityImportStoreResult.NeedsPassphrase -> {
+                        onResult(false, getApplication<Application>().getString(R.string.identity_import_error_incorrect_passphrase))
+                    }
+
+                    is IdentityImportStoreResult.Error -> onResult(false, result.message)
+                }
+            }
+        }
+    }
+
+    fun exportIdentity(certificate: ClientCertificate, targetUri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val exportResult = runCatching {
+                val pem = certificateManager.exportIdentity(certificate.alias)
+                    ?: throw IllegalStateException("No identity data available for export")
+                val output = getApplication<Application>()
+                    .contentResolver
+                    .openOutputStream(targetUri, "wt")
+                    ?: throw IllegalStateException("Failed to open export destination")
+                output.bufferedWriter(Charsets.UTF_8).use { writer ->
+                    writer.write(pem)
+                }
+            }
+            withContext(Dispatchers.Main) {
+                val message = if (exportResult.isSuccess) {
+                    getApplication<Application>().getString(R.string.identity_export_success)
+                } else {
+                    getApplication<Application>().getString(R.string.identity_export_failed)
+                }
+                snackbarHostState.showSnackbar(message)
+            }
+        }
+    }
 
     // Link context
     fun openLinkInNewTab(url: String) {

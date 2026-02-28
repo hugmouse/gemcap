@@ -53,10 +53,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -146,9 +146,8 @@ fun BrowserScreen(
         }
     }
 
-    val configuration = LocalConfiguration.current
-    // TODO: check if android API provides some screen sizes since this won't fly in long term
-    val isCompactMode = configuration.screenWidthDp.dp < 600.dp
+    val windowInfo = LocalWindowInfo.current
+    val isCompactMode = with(density) { windowInfo.containerSize.width.toDp() < 600.dp }
 
     val addressBarState by remember {
         derivedStateOf {
@@ -161,7 +160,7 @@ fun BrowserScreen(
         }
     }
 
-    val toolbarState by remember {
+    val toolbarState by remember(isCompactMode) {
         derivedStateOf {
             val tab = viewModel.activeTab
             ToolbarState(

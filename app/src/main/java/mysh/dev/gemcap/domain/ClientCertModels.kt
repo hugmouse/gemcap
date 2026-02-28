@@ -68,7 +68,7 @@ data class IdentityUsage(
  */
 @Immutable
 data class ClientCertificate(
-    val alias: String,                      // KeyStore alias
+    val alias: String,                      // Identity storage alias
     val commonName: String,                 // Display name / CN
     val email: String? = null,              // Optional email
     val organization: String? = null,       // Optional organization
@@ -76,7 +76,8 @@ data class ClientCertificate(
     val fingerprint: String,                // SHA-256 fingerprint for display
     val createdAt: Long,                    // Creation timestamp
     val expiresAt: Long,                    // Expiration timestamp
-    val isActive: Boolean = true            // Can be temporarily deactivated
+    val isActive: Boolean = true,           // Can be temporarily deactivated
+    val isExportable: Boolean = true
 ) {
     val isExpired: Boolean get() = System.currentTimeMillis() > expiresAt
 
