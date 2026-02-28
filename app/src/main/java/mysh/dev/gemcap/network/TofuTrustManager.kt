@@ -1,6 +1,5 @@
 package mysh.dev.gemcap.network
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.util.Log
 import androidx.core.content.edit

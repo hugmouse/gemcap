@@ -160,7 +160,7 @@ fun BrowserScreen(
         }
     }
 
-    val toolbarState by remember {
+    val toolbarState by remember(isCompactMode) {
         derivedStateOf {
             val tab = viewModel.activeTab
             ToolbarState(

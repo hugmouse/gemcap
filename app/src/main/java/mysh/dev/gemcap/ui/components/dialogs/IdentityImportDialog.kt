@@ -287,19 +287,9 @@ private fun SelectingFilePicker(
         } catch (_: PemFileTooLargeException) {
             onError(fileTooLargeError)
         } catch (e: IOException) {
-            onError(
-                resources.getString(
-                    R.string.identity_import_error_file_read,
-                    e.message ?: "unknown error"
-                )
-            )
+            onError(resources.getString(R.string.identity_import_error_file_read_generic))
         } catch (e: SecurityException) {
-            onError(
-                resources.getString(
-                    R.string.identity_import_error_file_read,
-                    e.message ?: "unknown error"
-                )
-            )
+            onError(resources.getString(R.string.identity_import_error_permission_denied))
         }
     }
 
@@ -496,7 +486,7 @@ private fun ErrorDialog(
 ) {
     AlertDialog(
         modifier = modifier,
-        onDismissRequest = onTryAgain,
+        onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.identity_import_error_title)) },
         text = { Text(message) },
         confirmButton = {

@@ -55,9 +55,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.collections.immutable.ImmutableList
+import mysh.dev.gemcap.R
 import mysh.dev.gemcap.domain.ClientCertificate
 import mysh.dev.gemcap.domain.IdentityUsage
 import java.text.SimpleDateFormat
@@ -136,12 +138,12 @@ fun CertificateManagementScreen(
                     onClick = onImportClick,
                     containerColor = MaterialTheme.colorScheme.secondaryContainer
                 ) {
-                    Icon(Icons.Default.Upload, contentDescription = "Import Identity")
+                    Icon(Icons.Default.Upload, contentDescription = stringResource(R.string.import_identity_content_description))
                 }
                 FloatingActionButton(
                     onClick = onGenerateClick
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = "New Identity")
+                    Icon(Icons.Default.Add, contentDescription = stringResource(R.string.new_identity_content_description))
                 }
             }
         }

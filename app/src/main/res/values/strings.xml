@@ -78,7 +78,11 @@
     <string name="identity_import_valid_until_label">Valid Until:</string>
     <string name="identity_import_fingerprint_label">Fingerprint:</string>
     <string name="identity_importing">Importing…</string>
+    <string name="identity_import_error_permission_denied">Permission denied when reading file</string>
+    <string name="identity_import_error_file_read_generic">Unable to read the selected file</string>
     <string name="identity_import_error_title">Import Error</string>
+    <string name="import_identity_content_description">Import Identity</string>
+    <string name="new_identity_content_description">New Identity</string>
     <string name="identity_import_try_again">Try Again</string>
     <string name="identity_import_success_title">Import Successful</string>
     <string name="identity_import_done">Done</string>

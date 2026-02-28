@@ -189,6 +189,8 @@ class ClientCertRepository(context: Context) {
     }
 
     fun exportIdentity(alias: String): String? {
+        val cert = getCertificates().find { it.alias == alias } ?: return null
+        if (!cert.isExportable) return null
         val pem = identityStorage.exportAsPem(alias) ?: return null
         return PemUtils.combinePem(
             PemUtils.PemEncoding(
