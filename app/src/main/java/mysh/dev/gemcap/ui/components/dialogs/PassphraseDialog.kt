@@ -69,12 +69,12 @@ fun PassphraseDialog(
                 enabled = passphrase.isNotBlank(),
                 onClick = { submitIfValid() }
             ) {
-                Text(text = "Continue")
+                Text(text = stringResource(R.string.continue_button))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text(text = "Cancel")
+                Text(text = stringResource(R.string.cancel_button))
             }
         }
     )

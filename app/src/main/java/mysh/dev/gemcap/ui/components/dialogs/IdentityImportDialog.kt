@@ -33,12 +33,14 @@ import mysh.dev.gemcap.data.ImportResult
 import mysh.dev.gemcap.domain.ClientCertificate
 import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.security.cert.X509Certificate
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 private const val MAX_PEM_FILE_BYTES = 1024 * 1024L // 1 MB
+
 private class PemFileTooLargeException : Exception()
 
 private sealed class IdentityImportDialogState {
@@ -89,6 +91,47 @@ private fun readPemDataWithLimit(context: Context, uri: Uri): String? {
     }
 }
 
+private fun mapParsedIdentity(
+    pemData: String,
+    passphrase: String?,
+    result: ImportResult.Success
+): ParsedIdentity {
+    val subject = result.certificate.subjectX500Principal.name
+    return ParsedIdentity(
+        pemData = pemData,
+        passphrase = passphrase,
+        certificate = result.certificate,
+        fingerprint = result.fingerprint,
+        commonName = Regex("CN=([^,]+)").find(subject)?.groupValues?.get(1) ?: subject,
+        email = Regex("EMAILADDRESS=([^,]+)").find(subject)?.groupValues?.get(1),
+        organization = Regex("O=([^,]+)").find(subject)?.groupValues?.get(1)
+    )
+}
+
+private fun resolveParseResultState(
+    pemData: String,
+    passphrase: String?,
+    result: ImportResult,
+    onCheckDuplicate: (fingerprint: String) -> ClientCertificate?
+): IdentityImportDialogState {
+    return when (result) {
+        is ImportResult.NeedsPassphrase -> IdentityImportDialogState.RequiresPassphrase(pemData)
+        is ImportResult.Error -> IdentityImportDialogState.Error(result.message)
+        is ImportResult.Success -> {
+            val parsedIdentity = mapParsedIdentity(pemData, passphrase, result)
+            val duplicate = onCheckDuplicate(result.fingerprint)
+            if (duplicate != null) {
+                IdentityImportDialogState.Conflict(
+                    existing = duplicate,
+                    parsed = parsedIdentity
+                )
+            } else {
+                IdentityImportDialogState.Preview(parsedIdentity)
+            }
+        }
+    }
+}
+
 /**
  * Dialog for importing a client identity from a PEM file.
  *
@@ -116,47 +159,92 @@ fun IdentityImportDialog(
     ) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
     var state by remember {
         mutableStateOf<IdentityImportDialogState>(IdentityImportDialogState.SelectingFile)
     }
 
-    fun mapParsedIdentity(
-        pemData: String,
-        passphrase: String?,
-        result: ImportResult.Success
-    ): ParsedIdentity {
-        val subject = result.certificate.subjectX500Principal.name
-        return ParsedIdentity(
-            pemData = pemData,
-            passphrase = passphrase,
-            certificate = result.certificate,
-            fingerprint = result.fingerprint,
-            commonName = Regex("CN=([^,]+)").find(subject)?.groupValues?.get(1) ?: subject,
-            email = Regex("EMAILADDRESS=([^,]+)").find(subject)?.groupValues?.get(1),
-            organization = Regex("O=([^,]+)").find(subject)?.groupValues?.get(1)
-        )
-    }
-
-    fun handleParseResult(pemData: String, passphrase: String?, result: ImportResult) {
-        state = when (result) {
-            is ImportResult.NeedsPassphrase -> IdentityImportDialogState.RequiresPassphrase(pemData)
-            is ImportResult.Error -> IdentityImportDialogState.Error(result.message)
-            is ImportResult.Success -> {
-                val parsedIdentity = mapParsedIdentity(pemData, passphrase, result)
-                val duplicate = onCheckDuplicate(result.fingerprint)
-                if (duplicate != null) {
-                    IdentityImportDialogState.Conflict(
-                        existing = duplicate,
-                        parsed = parsedIdentity
+    when (val dialogState = state) {
+        IdentityImportDialogState.SelectingFile -> {
+            SelectingFilePicker(
+                onDismiss = onDismiss,
+                onParseIdentity = onParseIdentity,
+                onParsingStarted = { state = IdentityImportDialogState.Parsing },
+                onParseResult = { pemData, passphrase, result ->
+                    state = resolveParseResultState(
+                        pemData = pemData,
+                        passphrase = passphrase,
+                        result = result,
+                        onCheckDuplicate = onCheckDuplicate
                     )
-                } else {
-                    IdentityImportDialogState.Preview(parsedIdentity)
+                },
+                onError = { message ->
+                    state = IdentityImportDialogState.Error(message)
                 }
-            }
+            )
+            ParsingIndicator(modifier = modifier, onDismiss = onDismiss)
+        }
+
+        IdentityImportDialogState.Parsing -> {
+            ParsingIndicator(modifier = modifier, onDismiss = onDismiss)
+        }
+
+        is IdentityImportDialogState.RequiresPassphrase -> {
+            RequiresPassphraseHandler(
+                state = dialogState,
+                onDismiss = onDismiss,
+                onParseIdentity = onParseIdentity,
+                onCheckDuplicate = onCheckDuplicate,
+                onStateChange = { nextState -> state = nextState }
+            )
+        }
+
+        is IdentityImportDialogState.Preview -> {
+            PreviewDialog(
+                modifier = modifier,
+                parsed = dialogState.parsed,
+                onDismiss = onDismiss,
+                onImportIdentity = onImportIdentity,
+                onStateChange = { nextState -> state = nextState }
+            )
+        }
+
+        is IdentityImportDialogState.Conflict -> {
+            ConflictDialog(
+                state = dialogState,
+                onDismiss = onDismiss,
+                onReplaceIdentity = onReplaceIdentity,
+                onStateChange = { nextState -> state = nextState }
+            )
+        }
+
+        IdentityImportDialogState.Importing -> {
+            ImportingDialog(modifier = modifier)
+        }
+
+        is IdentityImportDialogState.Error -> {
+            ErrorDialog(
+                modifier = modifier,
+                message = dialogState.message,
+                onDismiss = onDismiss,
+                onTryAgain = { state = IdentityImportDialogState.SelectingFile }
+            )
+        }
+
+        IdentityImportDialogState.Success -> {
+            SuccessDialog(modifier = modifier, onDismiss = onDismiss)
         }
     }
+}
 
+@Composable
+private fun SelectingFilePicker(
+    onDismiss: () -> Unit,
+    onParseIdentity: (pemData: String, passphrase: String?, onResult: (ImportResult) -> Unit) -> Unit,
+    onParsingStarted: () -> Unit,
+    onParseResult: (pemData: String, passphrase: String?, result: ImportResult) -> Unit,
+    onError: (String) -> Unit
+) {
+    val context = LocalContext.current
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -164,36 +252,45 @@ fun IdentityImportDialog(
             onDismiss()
             return@rememberLauncherForActivityResult
         }
+
         try {
             val fileSize = context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
                     val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
-                    if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) cursor.getLong(sizeIndex) else null
-                } else null
+                    if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) {
+                        cursor.getLong(sizeIndex)
+                    } else {
+                        null
+                    }
+                } else {
+                    null
+                }
             }
             if (fileSize != null && fileSize > MAX_PEM_FILE_BYTES) {
-                state = IdentityImportDialogState.Error(
-                    context.getString(R.string.identity_import_error_file_too_large)
-                )
+                onError(context.getString(R.string.identity_import_error_file_too_large))
                 return@rememberLauncherForActivityResult
             }
+
             val pemData = readPemDataWithLimit(context, uri)
             if (pemData.isNullOrBlank()) {
-                state = IdentityImportDialogState.Error(
-                    context.getString(R.string.identity_import_error_file_read, "empty file")
-                )
+                onError(context.getString(R.string.identity_import_error_file_read, "empty file"))
             } else {
-                state = IdentityImportDialogState.Parsing
+                onParsingStarted()
                 onParseIdentity(pemData, null) { result ->
-                    handleParseResult(pemData, null, result)
+                    onParseResult(pemData, null, result)
                 }
             }
         } catch (_: PemFileTooLargeException) {
-            state = IdentityImportDialogState.Error(
-                context.getString(R.string.identity_import_error_file_too_large)
+            onError(context.getString(R.string.identity_import_error_file_too_large))
+        } catch (e: IOException) {
+            onError(
+                context.getString(
+                    R.string.identity_import_error_file_read,
+                    e.message ?: "unknown error"
+                )
             )
-        } catch (e: Exception) {
-            state = IdentityImportDialogState.Error(
+        } catch (e: SecurityException) {
+            onError(
                 context.getString(
                     R.string.identity_import_error_file_read,
                     e.message ?: "unknown error"
@@ -202,181 +299,232 @@ fun IdentityImportDialog(
         }
     }
 
-    LaunchedEffect(state) {
-        if (state is IdentityImportDialogState.SelectingFile) {
-            filePickerLauncher.launch(arrayOf("text/plain", "application/x-pem-file", "*/*"))
-        }
+    LaunchedEffect(Unit) {
+        filePickerLauncher.launch(arrayOf("text/plain", "application/x-pem-file", "*/*"))
     }
+}
 
-    when (val dialogState = state) {
-        IdentityImportDialogState.SelectingFile,
-        IdentityImportDialogState.Parsing -> {
-            AlertDialog(
-                modifier = modifier,
-                onDismissRequest = onDismiss,
-                title = { Text(text = context.getString(R.string.identity_import_title)) },
-                text = { CircularProgressIndicator() },
-                confirmButton = {},
-                dismissButton = {
-                    TextButton(onClick = onDismiss) {
-                        Text(context.getString(R.string.identity_import_button_cancel))
-                    }
-                }
-            )
+@Composable
+private fun ParsingIndicator(
+    modifier: Modifier = Modifier,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        modifier = modifier,
+        onDismissRequest = onDismiss,
+        title = { Text(text = stringResource(R.string.identity_import_title)) },
+        text = { CircularProgressIndicator() },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.identity_import_button_cancel))
+            }
         }
+    )
+}
 
-        is IdentityImportDialogState.RequiresPassphrase -> {
-            PassphraseDialog(
-                onDismiss = onDismiss,
-                onSubmit = { passphrase ->
-                    state = IdentityImportDialogState.Parsing
-                    onParseIdentity(dialogState.pemData, passphrase) { result ->
-                        handleParseResult(dialogState.pemData, passphrase, result)
-                    }
-                }
-            )
+@Composable
+private fun RequiresPassphraseHandler(
+    state: IdentityImportDialogState.RequiresPassphrase,
+    onDismiss: () -> Unit,
+    onParseIdentity: (pemData: String, passphrase: String?, onResult: (ImportResult) -> Unit) -> Unit,
+    onCheckDuplicate: (fingerprint: String) -> ClientCertificate?,
+    onStateChange: (IdentityImportDialogState) -> Unit
+) {
+    PassphraseDialog(
+        onDismiss = onDismiss,
+        onSubmit = { passphrase ->
+            onStateChange(IdentityImportDialogState.Parsing)
+            onParseIdentity(state.pemData, passphrase) { result ->
+                onStateChange(
+                    resolveParseResultState(
+                        pemData = state.pemData,
+                        passphrase = passphrase,
+                        result = result,
+                        onCheckDuplicate = onCheckDuplicate
+                    )
+                )
+            }
         }
+    )
+}
 
-        is IdentityImportDialogState.Preview -> {
-            val parsed = dialogState.parsed
-            AlertDialog(
-                modifier = modifier,
-                onDismissRequest = onDismiss,
-                title = { Text(text = context.getString(R.string.identity_import_title)) },
-                text = {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .verticalScroll(rememberScrollState())
-                    ) {
-                        Text(
-                            text = stringResource(R.string.identity_import_review_details),
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        IdentityDetailRow(
-                            stringResource(R.string.identity_import_common_name_label),
-                            parsed.commonName
-                        )
-                        parsed.email?.let {
-                            IdentityDetailRow(
-                                stringResource(R.string.identity_import_email_label),
-                                it
-                            )
-                        }
-                        parsed.organization?.let {
-                            IdentityDetailRow(
-                                stringResource(R.string.identity_import_organization_label),
-                                it
-                            )
-                        }
-                        IdentityDetailRow(
-                            stringResource(R.string.identity_import_valid_until_label),
-                            SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
-                                .format(Date(parsed.certificate.notAfter.time))
-                        )
-                        IdentityDetailRow(
-                            stringResource(R.string.identity_import_fingerprint_label),
-                            parsed.fingerprint.take(23) + "..."
-                        )
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            state = IdentityImportDialogState.Importing
-                            onImportIdentity(parsed.pemData, parsed.passphrase) { success, error ->
-                                state = if (success) {
-                                    IdentityImportDialogState.Success
-                                } else {
-                                    IdentityImportDialogState.Error(
-                                        error ?: context.getString(R.string.identity_import_error_invalid_pem, "")
-                                    )
-                                }
+@Composable
+private fun PreviewDialog(
+    modifier: Modifier = Modifier,
+    parsed: ParsedIdentity,
+    onDismiss: () -> Unit,
+    onImportIdentity: (
+        pemData: String,
+        passphrase: String?,
+        onResult: (success: Boolean, errorMessage: String?) -> Unit
+    ) -> Unit,
+    onStateChange: (IdentityImportDialogState) -> Unit
+) {
+    val context = LocalContext.current
+    AlertDialog(
+        modifier = modifier,
+        onDismissRequest = onDismiss,
+        title = { Text(text = stringResource(R.string.identity_import_title)) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = stringResource(R.string.identity_import_review_details),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                IdentityDetailRow(
+                    stringResource(R.string.identity_import_common_name_label),
+                    parsed.commonName
+                )
+                parsed.email?.let {
+                    IdentityDetailRow(
+                        stringResource(R.string.identity_import_email_label),
+                        it
+                    )
+                }
+                parsed.organization?.let {
+                    IdentityDetailRow(
+                        stringResource(R.string.identity_import_organization_label),
+                        it
+                    )
+                }
+                IdentityDetailRow(
+                    stringResource(R.string.identity_import_valid_until_label),
+                    SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+                        .format(Date(parsed.certificate.notAfter.time))
+                )
+                IdentityDetailRow(
+                    stringResource(R.string.identity_import_fingerprint_label),
+                    parsed.fingerprint.take(23) + "..."
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onStateChange(IdentityImportDialogState.Importing)
+                    onImportIdentity(parsed.pemData, parsed.passphrase) { success, error ->
+                        onStateChange(
+                            if (success) {
+                                IdentityImportDialogState.Success
+                            } else {
+                                IdentityImportDialogState.Error(
+                                    error ?: context.getString(R.string.identity_import_error_invalid_pem, "")
+                                )
                             }
-                        }
-                    ) {
-                        Text(context.getString(R.string.identity_import_button_import))
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = onDismiss) {
-                        Text(context.getString(R.string.identity_import_button_cancel))
+                        )
                     }
                 }
-            )
+            ) {
+                Text(stringResource(R.string.identity_import_button_import))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.identity_import_button_cancel))
+            }
         }
+    )
+}
 
-        is IdentityImportDialogState.Conflict -> {
-            IdentityImportConflictDialog(
-                existingCertificate = dialogState.existing,
-                importedCommonName = dialogState.parsed.commonName,
-                fingerprint = dialogState.parsed.fingerprint,
-                onSkip = onDismiss,
-                onReplace = {
-                    state = IdentityImportDialogState.Importing
-                    onReplaceIdentity(
-                        dialogState.existing.alias,
-                        dialogState.parsed.pemData,
-                        dialogState.parsed.passphrase
-                    ) { success, error ->
-                        state = if (success) {
-                            IdentityImportDialogState.Success
-                        } else {
-                            IdentityImportDialogState.Error(
-                                error ?: context.getString(R.string.identity_import_error_invalid_pem, "")
-                            )
-                        }
+@Composable
+private fun ConflictDialog(
+    state: IdentityImportDialogState.Conflict,
+    onDismiss: () -> Unit,
+    onReplaceIdentity: (
+        existingAlias: String,
+        newPemData: String,
+        passphrase: String?,
+        onResult: (success: Boolean, errorMessage: String?) -> Unit
+    ) -> Unit,
+    onStateChange: (IdentityImportDialogState) -> Unit
+) {
+    val context = LocalContext.current
+    IdentityImportConflictDialog(
+        existingCertificate = state.existing,
+        importedCommonName = state.parsed.commonName,
+        fingerprint = state.parsed.fingerprint,
+        onSkip = onDismiss,
+        onReplace = {
+            onStateChange(IdentityImportDialogState.Importing)
+            onReplaceIdentity(
+                state.existing.alias,
+                state.parsed.pemData,
+                state.parsed.passphrase
+            ) { success, error ->
+                onStateChange(
+                    if (success) {
+                        IdentityImportDialogState.Success
+                    } else {
+                        IdentityImportDialogState.Error(
+                            error ?: context.getString(R.string.identity_import_error_invalid_pem, "")
+                        )
                     }
-                }
-            )
+                )
+            }
         }
+    )
+}
 
-        IdentityImportDialogState.Importing -> {
-            AlertDialog(
-                modifier = modifier,
-                onDismissRequest = {},
-                title = { Text(stringResource(R.string.identity_importing)) },
-                text = { CircularProgressIndicator() },
-                confirmButton = {},
-                dismissButton = {}
-            )
-        }
+@Composable
+private fun ImportingDialog(modifier: Modifier = Modifier) {
+    AlertDialog(
+        modifier = modifier,
+        onDismissRequest = {},
+        title = { Text(stringResource(R.string.identity_importing)) },
+        text = { CircularProgressIndicator() },
+        confirmButton = {},
+        dismissButton = {}
+    )
+}
 
-        is IdentityImportDialogState.Error -> {
-            AlertDialog(
-                modifier = modifier,
-                onDismissRequest = { state = IdentityImportDialogState.SelectingFile },
-                title = { Text(stringResource(R.string.identity_import_error_title)) },
-                text = { Text(dialogState.message) },
-                confirmButton = {
-                    Button(onClick = { state = IdentityImportDialogState.SelectingFile }) {
-                        Text(stringResource(R.string.identity_import_try_again))
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = onDismiss) {
-                        Text(context.getString(R.string.identity_import_button_cancel))
-                    }
-                }
-            )
+@Composable
+private fun ErrorDialog(
+    modifier: Modifier = Modifier,
+    message: String,
+    onDismiss: () -> Unit,
+    onTryAgain: () -> Unit
+) {
+    AlertDialog(
+        modifier = modifier,
+        onDismissRequest = onTryAgain,
+        title = { Text(stringResource(R.string.identity_import_error_title)) },
+        text = { Text(message) },
+        confirmButton = {
+            Button(onClick = onTryAgain) {
+                Text(stringResource(R.string.identity_import_try_again))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.identity_import_button_cancel))
+            }
         }
+    )
+}
 
-        IdentityImportDialogState.Success -> {
-            AlertDialog(
-                modifier = modifier,
-                onDismissRequest = onDismiss,
-                title = { Text(stringResource(R.string.identity_import_success_title)) },
-                text = { Text(context.getString(R.string.identity_import_success)) },
-                confirmButton = {
-                    Button(onClick = onDismiss) {
-                        Text(stringResource(R.string.identity_import_done))
-                    }
-                },
-                dismissButton = {}
-            )
-        }
-    }
+@Composable
+private fun SuccessDialog(
+    modifier: Modifier = Modifier,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        modifier = modifier,
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.identity_import_success_title)) },
+        text = { Text(stringResource(R.string.identity_import_success)) },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text(stringResource(R.string.identity_import_done))
+            }
+        },
+        dismissButton = {}
+    )
 }
 
 @Composable

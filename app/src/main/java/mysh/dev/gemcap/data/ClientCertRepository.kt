@@ -10,6 +10,8 @@ import mysh.dev.gemcap.util.PemUtils
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.KeyStore
+import javax.naming.InvalidNameException
+import javax.naming.ldap.LdapName
 
 private const val TAG = "ClientCertRepository"
 
@@ -247,11 +249,31 @@ class ClientCertRepository(context: Context) {
         previous: ClientCertificate?
     ): ClientCertificate {
         val subjectDn = certificate.subjectX500Principal.name
+        var commonName: String? = null
+        var email: String? = null
+        var organization: String? = null
+
+        try {
+            val ldapName = LdapName(subjectDn)
+            ldapName.rdns.forEach { rdn ->
+                val value = rdn.value?.toString() ?: return@forEach
+                when {
+                    rdn.type.equals("CN", ignoreCase = true) && commonName == null -> commonName = value
+                    rdn.type.equals("EMAILADDRESS", ignoreCase = true) && email == null -> email = value
+                    rdn.type.equals("O", ignoreCase = true) && organization == null -> organization = value
+                }
+            }
+        } catch (_: IllegalArgumentException) {
+            // Fall back to the raw subject DN values below.
+        } catch (_: InvalidNameException) {
+            // Fall back to the raw subject DN values below.
+        }
+
         return ClientCertificate(
             alias = alias,
-            commonName = Regex("CN=([^,]+)").find(subjectDn)?.groupValues?.get(1) ?: subjectDn,
-            email = Regex("EMAILADDRESS=([^,]+)").find(subjectDn)?.groupValues?.get(1),
-            organization = Regex("O=([^,]+)").find(subjectDn)?.groupValues?.get(1),
+            commonName = commonName ?: subjectDn,
+            email = email,
+            organization = organization,
             usages = previous?.usages ?: emptyList(),
             fingerprint = fingerprint,
             createdAt = System.currentTimeMillis(),

@@ -14,10 +14,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import mysh.dev.gemcap.R
 import mysh.dev.gemcap.domain.ClientCertificate
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -33,44 +35,64 @@ fun IdentityImportConflictDialog(
 ) {
     var showExistingDetails by remember { mutableStateOf(false) }
     val dateFormat = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
+    val toggleDescription = stringResource(R.string.toggle_existing_details)
+    val expandedState = stringResource(R.string.toggle_existing_state_expanded)
+    val collapsedState = stringResource(R.string.toggle_existing_state_collapsed)
 
     AlertDialog(
         onDismissRequest = onSkip,
-        title = { Text(text = "Identity Already Exists") },
+        title = { Text(text = stringResource(R.string.identity_already_exists)) },
         text = {
             Column {
                 Text(
-                    text = "An identity with this fingerprint already exists.",
+                    text = stringResource(R.string.identity_exists_message),
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Existing: ${existingCertificate.commonName}",
+                    text = stringResource(
+                        R.string.existing_label,
+                        existingCertificate.commonName
+                    ),
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Text(
-                    text = "Import: $importedCommonName",
+                    text = stringResource(R.string.import_label, importedCommonName),
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 TextButton(
                     modifier = Modifier.semantics {
-                        contentDescription = "Toggle existing identity details"
-                        stateDescription = if (showExistingDetails) "Expanded" else "Collapsed"
+                        contentDescription = toggleDescription
+                        stateDescription = if (showExistingDetails) expandedState else collapsedState
                     },
                     onClick = { showExistingDetails = !showExistingDetails }
                 ) {
-                    Text(text = if (showExistingDetails) "Hide Existing" else "View Existing")
+                    Text(
+                        text = stringResource(
+                            if (showExistingDetails) {
+                                R.string.hide_existing
+                            } else {
+                                R.string.view_existing
+                            }
+                        )
+                    )
                 }
 
                 if (showExistingDetails) {
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "Created: ${dateFormat.format(Date(existingCertificate.createdAt))}",
+                        text = stringResource(
+                            R.string.created_label,
+                            dateFormat.format(Date(existingCertificate.createdAt))
+                        ),
                         style = MaterialTheme.typography.bodySmall
                     )
                     Text(
-                        text = "Fingerprint: ${fingerprint.take(23)}...",
+                        text = stringResource(
+                            R.string.fingerprint_short_label,
+                            fingerprint.take(23)
+                        ),
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
@@ -78,12 +100,12 @@ fun IdentityImportConflictDialog(
         },
         confirmButton = {
             Button(onClick = onReplace) {
-                Text(text = "Replace Existing")
+                Text(text = stringResource(R.string.replace_existing))
             }
         },
         dismissButton = {
             TextButton(onClick = onSkip) {
-                Text(text = "Skip Import")
+                Text(text = stringResource(R.string.skip_import))
             }
         }
     )

@@ -92,6 +92,19 @@
     <string name="identity_import_try_again">Try Again</string>
     <string name="identity_import_success_title">Import Successful</string>
     <string name="identity_import_done">Done</string>
+    <string name="identity_already_exists">Identity Already Exists</string>
+    <string name="identity_exists_message">An identity with this fingerprint already exists.</string>
+    <string name="existing_label">Existing: %1$s</string>
+    <string name="import_label">Import: %1$s</string>
+    <string name="hide_existing">Hide Existing</string>
+    <string name="view_existing">View Existing</string>
+    <string name="replace_existing">Replace Existing</string>
+    <string name="skip_import">Skip Import</string>
+    <string name="toggle_existing_details">Toggle existing identity details</string>
+    <string name="toggle_existing_state_expanded">Expanded</string>
+    <string name="toggle_existing_state_collapsed">Collapsed</string>
+    <string name="created_label">Created: %1$s</string>
+    <string name="fingerprint_short_label">Fingerprint: %1$s…</string>
     <string name="identity_import_success">Identity imported successfully</string>
     <string name="identity_export_title">Export Identity</string>
     <string name="identity_export_success">Identity exported. The file contains an unencrypted private key — store it securely.</string>
@@ -100,6 +113,7 @@
     <string name="enter_passphrase">Enter Passphrase</string>
     <string name="identity_protected_with_passphrase">This identity is protected with a passphrase.</string>
     <string name="passphrase">Passphrase</string>
+    <string name="continue_button">Continue</string>
     <string name="identity_card_export">Export</string>
     <string name="identity_card_delete">Delete</string>
     <string name="identity_card_activate">Activate</string>

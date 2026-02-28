@@ -1138,7 +1138,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     ?: throw IllegalStateException("No identity data available for export")
                 val output = getApplication<Application>()
                     .contentResolver
-                    .openOutputStream(targetUri, "w")
+                    .openOutputStream(targetUri, "wt")
                     ?: throw IllegalStateException("Failed to open export destination")
                 output.bufferedWriter(Charsets.UTF_8).use { writer ->
                     writer.write(pem)

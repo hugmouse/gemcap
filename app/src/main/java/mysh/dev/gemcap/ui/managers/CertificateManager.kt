@@ -6,7 +6,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import mysh.dev.gemcap.data.ClientCertRepository
 import mysh.dev.gemcap.data.IdentityImportStoreResult
 import mysh.dev.gemcap.data.ImportResult
@@ -274,21 +276,31 @@ class CertificateManager(
 
     // Certificate details
     fun showDetails(certificate: ClientCertificate) {
-        val identityPair = certRepository.getIdentityStorage().getIdentity(certificate.alias)
-        val x509Cert = identityPair?.second
+        scope.launch {
+            val x509Cert = try {
+                withContext(Dispatchers.IO) {
+                    certRepository.getIdentityStorage().getIdentity(certificate.alias)?.second
+                }
+            } catch (e: Exception) {
+                Log.e("CertificateManager", "Failed to load identity details for ${certificate.alias}", e)
+                null
+            }
 
-        updateDialogState(
-            getDialogState().copy(
-                certificateDetails = CertificateDetailsState(
-                    commonName = certificate.commonName,
-                    fingerprint = certificate.fingerprint,
-                    issuer = x509Cert?.issuerX500Principal?.name ?: "Unknown",
-                    validFrom = x509Cert?.notBefore?.time ?: certificate.createdAt,
-                    validUntil = x509Cert?.notAfter?.time ?: certificate.expiresAt,
-                    isServerCert = false
+            withContext(Dispatchers.Main) {
+                updateDialogState(
+                    getDialogState().copy(
+                        certificateDetails = CertificateDetailsState(
+                            commonName = certificate.commonName,
+                            fingerprint = certificate.fingerprint,
+                            issuer = x509Cert?.issuerX500Principal?.name ?: "Unknown",
+                            validFrom = x509Cert?.notBefore?.time ?: certificate.createdAt,
+                            validUntil = x509Cert?.notAfter?.time ?: certificate.expiresAt,
+                            isServerCert = false
+                        )
+                    )
                 )
-            )
-        )
+            }
+        }
     }
 
     fun showTofuDetails(host: String, newFingerprint: String, newExpiry: Long) {
