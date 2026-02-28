@@ -72,9 +72,9 @@ fun CertificateManagementScreen(
     onImportClick: () -> Unit,
     onToggleActive: (String, Boolean) -> Unit,
     onDelete: (String) -> Unit,
-    onExport: ((ClientCertificate, android.net.Uri) -> Unit)? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    onExport: ((ClientCertificate, android.net.Uri) -> Unit)? = null,
     currentHost: String = "",
     currentPath: String = "/",
     onUseOnClick: ((ClientCertificate) -> Unit)? = null

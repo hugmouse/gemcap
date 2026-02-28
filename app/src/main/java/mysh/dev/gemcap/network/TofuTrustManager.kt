@@ -1,5 +1,6 @@
 package mysh.dev.gemcap.network
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.util.Log
 import androidx.core.content.edit
@@ -67,7 +68,7 @@ class TofuTrustManager(private val context: Context) : X509TrustManager {
     }
 
     override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-        // noop
+        throw CertificateException("Client certificate validation is not supported")
     }
 
     /**

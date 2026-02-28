@@ -26,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import mysh.dev.gemcap.R
@@ -245,6 +246,9 @@ private fun SelectingFilePicker(
     onError: (String) -> Unit
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
+    val fileTooLargeError = stringResource(R.string.identity_import_error_file_too_large)
+    val emptyFileError = stringResource(R.string.identity_import_error_file_read, "empty file")
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -267,13 +271,13 @@ private fun SelectingFilePicker(
                 }
             }
             if (fileSize != null && fileSize > MAX_PEM_FILE_BYTES) {
-                onError(context.getString(R.string.identity_import_error_file_too_large))
+                onError(fileTooLargeError)
                 return@rememberLauncherForActivityResult
             }
 
             val pemData = readPemDataWithLimit(context, uri)
             if (pemData.isNullOrBlank()) {
-                onError(context.getString(R.string.identity_import_error_file_read, "empty file"))
+                onError(emptyFileError)
             } else {
                 onParsingStarted()
                 onParseIdentity(pemData, null) { result ->
@@ -281,17 +285,17 @@ private fun SelectingFilePicker(
                 }
             }
         } catch (_: PemFileTooLargeException) {
-            onError(context.getString(R.string.identity_import_error_file_too_large))
+            onError(fileTooLargeError)
         } catch (e: IOException) {
             onError(
-                context.getString(
+                resources.getString(
                     R.string.identity_import_error_file_read,
                     e.message ?: "unknown error"
                 )
             )
         } catch (e: SecurityException) {
             onError(
-                context.getString(
+                resources.getString(
                     R.string.identity_import_error_file_read,
                     e.message ?: "unknown error"
                 )
@@ -361,7 +365,7 @@ private fun PreviewDialog(
     ) -> Unit,
     onStateChange: (IdentityImportDialogState) -> Unit
 ) {
-    val context = LocalContext.current
+    val invalidPemFallback = stringResource(R.string.identity_import_error_invalid_pem, "")
     AlertDialog(
         modifier = modifier,
         onDismissRequest = onDismiss,
@@ -414,7 +418,7 @@ private fun PreviewDialog(
                                 IdentityImportDialogState.Success
                             } else {
                                 IdentityImportDialogState.Error(
-                                    error ?: context.getString(R.string.identity_import_error_invalid_pem, "")
+                                    error ?: invalidPemFallback
                                 )
                             }
                         )
@@ -444,7 +448,7 @@ private fun ConflictDialog(
     ) -> Unit,
     onStateChange: (IdentityImportDialogState) -> Unit
 ) {
-    val context = LocalContext.current
+    val invalidPemFallback = stringResource(R.string.identity_import_error_invalid_pem, "")
     IdentityImportConflictDialog(
         existingCertificate = state.existing,
         importedCommonName = state.parsed.commonName,
@@ -462,7 +466,7 @@ private fun ConflictDialog(
                         IdentityImportDialogState.Success
                     } else {
                         IdentityImportDialogState.Error(
-                            error ?: context.getString(R.string.identity_import_error_invalid_pem, "")
+                            error ?: invalidPemFallback
                         )
                     }
                 )

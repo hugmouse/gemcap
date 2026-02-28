@@ -66,28 +66,19 @@
 
     <!-- Identity Import/Export -->
     <string name="identity_import_title">Import Identity</string>
-    <string name="identity_import_select_file">Select PEM file</string>
-    <string name="identity_import_enter_passphrase">Enter Passphrase</string>
-    <string name="identity_import_passphrase_hint">Passphrase for encrypted key</string>
     <string name="identity_import_button_import">Import</string>
     <string name="identity_import_button_cancel">Cancel</string>
-    <string name="identity_import_error_no_certificate">No certificate found in PEM data</string>
-    <string name="identity_import_error_no_private_key">No private key found in PEM data</string>
     <string name="identity_import_error_invalid_pem">Failed to parse PEM: %1$s</string>
     <string name="identity_import_error_file_read">Failed to read file: %1$s</string>
     <string name="identity_import_error_incorrect_passphrase">Incorrect passphrase</string>
     <string name="identity_import_error_file_too_large">File is too large to be a valid PEM identity</string>
-    <string name="identity_import_duplicate_title">Identity Already Exists</string>
-    <string name="identity_import_duplicate_message">An identity with this fingerprint already exists. What would you like to do?</string>
-    <string name="identity_import_duplicate_skip">Skip Import</string>
-    <string name="identity_import_duplicate_replace">Replace Existing</string>
     <string name="identity_import_review_details">Review the identity details:</string>
     <string name="identity_import_common_name_label">Common Name:</string>
     <string name="identity_import_email_label">Email:</string>
     <string name="identity_import_organization_label">Organization:</string>
     <string name="identity_import_valid_until_label">Valid Until:</string>
     <string name="identity_import_fingerprint_label">Fingerprint:</string>
-    <string name="identity_importing">Importing...</string>
+    <string name="identity_importing">Importing…</string>
     <string name="identity_import_error_title">Import Error</string>
     <string name="identity_import_try_again">Try Again</string>
     <string name="identity_import_success_title">Import Successful</string>
@@ -106,7 +97,6 @@
     <string name="created_label">Created: %1$s</string>
     <string name="fingerprint_short_label">Fingerprint: %1$s…</string>
     <string name="identity_import_success">Identity imported successfully</string>
-    <string name="identity_export_title">Export Identity</string>
     <string name="identity_export_success">Identity exported. The file contains an unencrypted private key — store it securely.</string>
     <string name="identity_export_failed">Failed to export identity</string>
     <string name="identity_migration_notice">Identity storage was upgraded. Existing beta identities were cleared. Recreate or re-import identities.</string>
@@ -114,10 +104,4 @@
     <string name="identity_protected_with_passphrase">This identity is protected with a passphrase.</string>
     <string name="passphrase">Passphrase</string>
     <string name="continue_button">Continue</string>
-    <string name="identity_card_export">Export</string>
-    <string name="identity_card_delete">Delete</string>
-    <string name="identity_card_activate">Activate</string>
-    <string name="identity_card_deactivate">Deactivate</string>
-    <string name="identity_management_import">Import Identity</string>
-    <string name="identity_management_new">New Identity</string>
 </resources>
