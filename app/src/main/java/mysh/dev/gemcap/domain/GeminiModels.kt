@@ -42,11 +42,55 @@ data class StableByteArray(val bytes: ByteArray) {
     }
 }
 
+enum class LinkScheme {
+    GEMINI,
+    TITAN,
+    GOPHER,
+    FINGER,
+    HTTP,
+    FILE,
+    DATA,
+    ABOUT,
+    MAILTO,
+    SPARTAN,
+    NEX,
+    MISFIN,
+    GUPPY,
+    UNKNOWN
+}
+
+enum class LinkFlag {
+    REMOTE,
+    HUMAN_READABLE,
+    IMAGE_EXT,
+    AUDIO_EXT,
+    FONTPACK_EXT,
+    QUERY,
+    ICON_FROM_LABEL,
+    VISITED // TODO: add visited links styles and state
+}
+
+data class CapsuleIdentity(
+    val icon: String?,
+    val themeSeed: UInt,
+    val paletteSeed: UInt,
+    val themeSeedSource: String,
+    val paletteSeedSource: String
+)
+
 sealed class GeminiContent {
     abstract val id: Int
 
     data class Text(override val id: Int, val text: String) : GeminiContent()
-    data class Link(override val id: Int, val url: String, val text: String) : GeminiContent()
+    data class Link(
+        override val id: Int,
+        val url: String,
+        val text: String,
+        val resolvedUrl: String? = null,
+        val scheme: LinkScheme = LinkScheme.UNKNOWN,
+        val flags: Set<LinkFlag> = emptySet(),
+        val labelIcon: String? = null
+    ) : GeminiContent()
     data class Heading(override val id: Int, val level: Int, val text: String) : GeminiContent()
     data class ListItem(override val id: Int, val text: String) : GeminiContent()
     data class Quote(override val id: Int, val text: String) : GeminiContent()

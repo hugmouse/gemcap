@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -24,9 +23,9 @@ fun PreformattedContent(
     highlight: Boolean
 ) {
     val highlightColor =
-        if (highlight) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+        if (highlight) styles.highlightColor else Color.Transparent
     Card(
-        colors = CardDefaults.cardColors(containerColor = styles.surfaceVariantColor),
+        colors = CardDefaults.cardColors(containerColor = styles.preformattedBackgroundColor),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(8.dp)) {
@@ -34,7 +33,7 @@ fun PreformattedContent(
                 Text(
                     text = item.alt,
                     style = styles.monoStyle,
-                    color = styles.onSurfaceVariantColor
+                    color = styles.preformattedAltColor
                 )
             }
             Text(
@@ -46,7 +45,8 @@ fun PreformattedContent(
                         fontFamily = styles.monoStyle.fontFamily ?: FontFamily.Monospace
                     )
                 ),
-                style = styles.monoStyle
+                style = styles.monoStyle,
+                color = styles.preformattedTextColor
             )
         }
     }
