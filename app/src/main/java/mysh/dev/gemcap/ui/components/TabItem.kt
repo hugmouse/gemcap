@@ -16,12 +16,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import mysh.dev.gemcap.ui.theme.CapsuleStyleGenerator
+import mysh.dev.gemcap.ui.theme.isDarkMode
 import mysh.dev.gemcap.ui.model.TabState
 
 @Composable
@@ -33,6 +36,12 @@ fun TabItem(
     onClosed: () -> Unit
 ) {
     val shape = SimpleChromeTabShape()
+    val isDarkMode = isDarkMode()
+    val capsuleStyle = remember(tab.capsuleIdentity, isDarkMode) {
+        CapsuleStyleGenerator.fromIdentity(tab.capsuleIdentity, isDarkMode)
+    }
+    val activeColor = capsuleStyle?.chromeAccentColor?.copy(alpha = 0.12f) ?: MaterialTheme.colorScheme.surface
+    val titleColor = capsuleStyle?.chromeTextColor ?: MaterialTheme.colorScheme.onSurface
 
     Box(
         modifier = Modifier
@@ -40,7 +49,7 @@ fun TabItem(
             .fillMaxHeight()
     ) {
         Surface(
-            color = if (isActive) MaterialTheme.colorScheme.surface else Color.Transparent,
+            color = if (isActive) activeColor else Color.Transparent,
             shape = shape,
             modifier = Modifier
                 .fillMaxSize()
@@ -50,9 +59,18 @@ fun TabItem(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(horizontal = 32.dp)
             ) {
+                if (!tab.capsuleIdentity?.icon.isNullOrBlank()) {
+                    Text(
+                        text = tab.capsuleIdentity?.icon.orEmpty(),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = capsuleStyle?.chromeAccentColor ?: titleColor,
+                        modifier = Modifier.padding(end = 6.dp)
+                    )
+                }
                 Text(
                     text = tab.title.ifEmpty { "New Tab" },
                     style = MaterialTheme.typography.labelLarge,
+                    color = titleColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)

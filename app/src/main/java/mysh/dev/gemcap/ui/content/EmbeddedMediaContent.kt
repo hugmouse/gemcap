@@ -160,7 +160,7 @@ private fun CollapsedMediaCard(
                     imageVector = icon,
                     contentDescription = null,
                     modifier = Modifier.size(24.dp),
-                    tint = styles.primaryColor
+                    tint = styles.linkIconColor
                 )
 
                 Column(
@@ -170,7 +170,7 @@ private fun CollapsedMediaCard(
                     Text(
                         text = displayText,
                         style = styles.linkStyle,
-                        color = styles.primaryColor,
+                        color = styles.linkTextColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -279,7 +279,7 @@ private fun LoadingMediaCard(
             CircularProgressIndicator(
                 modifier = Modifier.size(20.dp),
                 strokeWidth = 2.dp,
-                color = styles.primaryColor
+                color = styles.linkIconColor
             )
             Text(
                 text = stringResource(R.string.embedded_media_loading, mediaLabel),
@@ -462,9 +462,7 @@ private class AudioPlayerState(
     var playbackError by mutableStateOf<String?>(null)
         private set
 
-    fun release() = releasePlayer()
-
-    fun releasePlayer() {
+    fun release() {
         val player = mediaPlayer ?: return
         runCatching {
             player.setOnPreparedListener(null)
@@ -478,7 +476,7 @@ private class AudioPlayerState(
     }
 
     fun prepareAndStartPlayer() {
-        releasePlayer()
+        release()
         playbackError = null
         val player = MediaPlayer()
         try {

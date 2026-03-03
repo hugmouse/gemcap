@@ -1,10 +1,12 @@
 package mysh.dev.gemcap.ui.content
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
 import mysh.dev.gemcap.domain.GeminiContent
 import mysh.dev.gemcap.domain.StableByteArray
 
-data class ContentActions(
+@Stable
+class ContentActions(
     val onLinkClick: (String) -> Unit,
     val onOpenImageInNewTab: (String) -> Unit,
     val onCopyLink: (String) -> Unit,
@@ -36,7 +38,7 @@ fun ContentItem(
             actions.onOpenInNewTab
         )
 
-        is GeminiContent.Text -> TextContent(item, searchQuery)
+        is GeminiContent.Text -> TextContent(item, styles, searchQuery)
         is GeminiContent.ListItem -> ListItemContent(item, styles, searchQuery)
         is GeminiContent.Quote -> QuoteContent(item, styles, searchQuery)
         is GeminiContent.Preformatted -> PreformattedContent(item, styles, searchQuery, highlight)

@@ -107,4 +107,13 @@
     <string name="identity_protected_with_passphrase">This identity is protected with a passphrase.</string>
     <string name="passphrase">Passphrase</string>
     <string name="continue_button">Continue</string>
+
+    <!-- General browser actions strings -->
+    <string name="link_menu_open_new_tab">Open in new tab</string>
+    <string name="link_menu_copy_address">Copy link address</string>
+    <string name="no_tabs_open">No Tabs Open</string>
+    <string name="download_saved">Saved to %1$s</string>
+    <string name="download_failed">Download failed: %1$s</string>
+    <string name="download_available">Download available: %1$s</string>
+    <string name="link_copied_to_clipboard">Link copied to clipboard</string>
 </resources>

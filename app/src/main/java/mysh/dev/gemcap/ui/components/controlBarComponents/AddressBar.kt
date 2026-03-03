@@ -53,8 +53,6 @@ import mysh.dev.gemcap.domain.HistoryEntry
 private object AddressBarDefaults {
     val Height = 40.dp
     val CornerRadius = 20.dp
-    val IconSize = 32.dp
-    val IconPadding = 6.dp
     val BorderThickness = 1.dp
 }
 

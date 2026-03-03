@@ -100,9 +100,7 @@ fun ControlBar(
                 IconButton(onClick = { callbacks.onNewTab() }) {
                     Icon(Icons.Default.Add, contentDescription = "New Tab")
                 }
-            }
-
-            if (!toolbarState.isCompactMode) {
+            } else {
                 IconButton(onClick = { callbacks.onIdentityClick() }) {
                     Icon(
                         Icons.Default.Person,

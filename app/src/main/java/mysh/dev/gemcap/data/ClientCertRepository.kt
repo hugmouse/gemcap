@@ -10,8 +10,6 @@ import mysh.dev.gemcap.util.PemUtils
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.KeyStore
-import javax.naming.InvalidNameException
-import javax.naming.ldap.LdapName
 
 private const val TAG = "ClientCertRepository"
 
@@ -24,6 +22,7 @@ class ClientCertRepository(context: Context) {
 
     private val prefs = context.getSharedPreferences("client_certs", Context.MODE_PRIVATE)
     private val identityStorage = EncryptedIdentityStorage(context)
+    private var cachedCertificates: List<ClientCertificate>? = null
 
     companion object {
         private const val KEY_CERTIFICATES = "certificates"
@@ -40,6 +39,7 @@ class ClientCertRepository(context: Context) {
      * Retrieves all stored identities.
      */
     fun getCertificates(): List<ClientCertificate> {
+        cachedCertificates?.let { return it }
         val json = prefs.getString(KEY_CERTIFICATES, null) ?: return emptyList()
         return try {
             val array = JSONArray(json)
@@ -50,6 +50,7 @@ class ClientCertRepository(context: Context) {
             if (available.size != parsed.size) {
                 saveCertificates(available)
             }
+            cachedCertificates = available
             available
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse certificates JSON", e)
@@ -251,25 +252,10 @@ class ClientCertRepository(context: Context) {
         previous: ClientCertificate?
     ): ClientCertificate {
         val subjectDn = certificate.subjectX500Principal.name
-        var commonName: String? = null
-        var email: String? = null
-        var organization: String? = null
-
-        try {
-            val ldapName = LdapName(subjectDn)
-            ldapName.rdns.forEach { rdn ->
-                val value = rdn.value?.toString() ?: return@forEach
-                when {
-                    rdn.type.equals("CN", ignoreCase = true) && commonName == null -> commonName = value
-                    rdn.type.equals("EMAILADDRESS", ignoreCase = true) && email == null -> email = value
-                    rdn.type.equals("O", ignoreCase = true) && organization == null -> organization = value
-                }
-            }
-        } catch (_: IllegalArgumentException) {
-            // Fall back to the raw subject DN values below.
-        } catch (_: InvalidNameException) {
-            // Fall back to the raw subject DN values below.
-        }
+        val attrs = parseX500Dn(subjectDn)
+        val commonName = attrs["CN"]
+        val email = attrs["EMAILADDRESS"] ?: attrs["1.2.840.113549.1.9.1"]
+        val organization = attrs["O"]
 
         return ClientCertificate(
             alias = alias,
@@ -282,6 +268,78 @@ class ClientCertRepository(context: Context) {
             expiresAt = certificate.notAfter.time,
             isActive = previous?.isActive ?: true
         )
+    }
+
+    /**
+     * Parses an RFC 2253 X.500 Distinguished Name into a map of attribute types to values.
+     * Returns the first value for each attribute type (uppercased keys).
+     * Supports both comma and semicolon separators per RFC 2253.
+     */
+    private fun parseX500Dn(dn: String): Map<String, String> {
+        val normalizedDn = dn.replace(';', ',')  // Replace ; with , per RFC 2253 [page:0]
+        val result = mutableMapOf<String, String>()
+        for (rdn in splitDnComponents(normalizedDn)) {
+            val eqIndex = rdn.indexOf('=')
+            if (eqIndex > 0) {
+                val type = rdn.substring(0, eqIndex).trim().uppercase()
+                val value = unescapeDnValue(rdn.substring(eqIndex + 1).trim())
+                if (value.isNotEmpty()) {
+                    result.putIfAbsent(type, value)
+                }
+            }
+        }
+        return result
+    }
+
+    /** Splits an RFC 2253 DN string on unescaped commas. */
+    private fun splitDnComponents(dn: String): List<String> {
+        val parts = mutableListOf<String>()
+        val current = StringBuilder()
+        var i = 0
+        var inQuote = false
+        while (i < dn.length) {
+            val c = dn[i]
+            when {
+                c == '\\' && i + 1 < dn.length -> {
+                    current.append(c).append(dn[i + 1])
+                    i += 2
+                }
+                c == '"' -> {
+                    inQuote = !inQuote
+                    i++
+                }
+                c == ',' && !inQuote -> {
+                    parts.add(current.toString())
+                    current.clear()
+                    i++
+                }
+                else -> {
+                    current.append(c)
+                    i++
+                }
+            }
+        }
+        if (current.isNotEmpty()) {
+            parts.add(current.toString())
+        }
+        return parts
+    }
+
+    /** Unescapes an RFC 2253 DN attribute value. */
+    private fun unescapeDnValue(value: String): String {
+        val trimmed = value.removeSurrounding("\"")
+        val sb = StringBuilder()
+        var i = 0
+        while (i < trimmed.length) {
+            if (trimmed[i] == '\\' && i + 1 < trimmed.length) {
+                sb.append(trimmed[i + 1])
+                i += 2
+            } else {
+                sb.append(trimmed[i])
+                i++
+            }
+        }
+        return sb.toString().trim()
     }
 
     private fun runBetaMigrationIfNeeded() {
@@ -342,6 +400,7 @@ class ClientCertRepository(context: Context) {
     }
 
     private fun saveCertificates(certificates: List<ClientCertificate>) {
+        cachedCertificates = null
         val array = JSONArray()
         certificates.forEach { cert ->
             val obj = JSONObject().apply {
@@ -373,8 +432,8 @@ class ClientCertRepository(context: Context) {
     }
 }
 
-sealed class IdentityImportStoreResult {
-    data class Success(val certificate: ClientCertificate) : IdentityImportStoreResult()
-    data class Error(val message: String) : IdentityImportStoreResult()
-    object NeedsPassphrase : IdentityImportStoreResult()
+sealed interface IdentityImportStoreResult {
+    data class Success(val certificate: ClientCertificate) : IdentityImportStoreResult
+    data class Error(val message: String) : IdentityImportStoreResult
+    data object NeedsPassphrase : IdentityImportStoreResult
 }
