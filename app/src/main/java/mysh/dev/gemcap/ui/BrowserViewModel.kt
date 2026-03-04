@@ -28,6 +28,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import mysh.dev.gemcap.data.BrowserRepository
 import mysh.dev.gemcap.data.ClientCertRepository
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import mysh.dev.gemcap.data.FontSize
 import mysh.dev.gemcap.data.IdentityImportStoreResult
 import mysh.dev.gemcap.data.ImportResult
@@ -38,6 +41,7 @@ import mysh.dev.gemcap.data.TabSession
 import mysh.dev.gemcap.data.TabSessionState
 import mysh.dev.gemcap.data.ThemeMode
 import mysh.dev.gemcap.domain.Bookmark
+import mysh.dev.gemcap.domain.CapsuleIdentityGenerator
 import mysh.dev.gemcap.domain.ClientCertificate
 import mysh.dev.gemcap.domain.DownloadPromptState
 import mysh.dev.gemcap.domain.GeminiContent
@@ -248,13 +252,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
     private fun reloadRestoredTabs() {
-        val originalActiveTabId = activeTabId ?: return
-        val tabIds = tabs.map { it.id }
-        tabIds.forEach { tabId ->
-            tabManager.selectTab(tabId)
-            loadPage(addToHistory = false)
-        }
-        tabManager.selectTab(originalActiveTabId)
+        // Only load the active tab immediately; other tabs load on first selection
+        activeTabId ?: return
+        loadPage(addToHistory = false)
     }
 
     // Search delegation
@@ -279,6 +279,11 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun selectTab(tabId: String) {
         tabManager.selectTab(tabId)
         bookmarkManager.updateBookmarkStatus(activeTab?.url)
+        // Lazy-load tabs that haven't been loaded yet (e.g., restored from session)
+        val tab = activeTab ?: return
+        if (!tab.isLoading && tab.content.isEmpty() && tab.error == null && tab.rawBody == null) {
+            loadPage(addToHistory = false)
+        }
     }
 
     fun onUrlChange(newUrl: String) {
@@ -351,10 +356,11 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             mimeType = state.mimeType
         )
 
+        val app = getApplication<Application>()
         dialogManager.setDownloadMessage(
             result.fold(
-                onSuccess = { "Saved to $it" },
-                onFailure = { "Download failed: ${it.message}" }
+                onSuccess = { app.getString(R.string.download_saved, it) },
+                onFailure = { app.getString(R.string.download_failed, it.message ?: it.toString()) }
             )
         )
     }
@@ -613,6 +619,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 tab.addToHistory(finalUrl)
             }
         }
+        tab.capsuleIdentity = CapsuleIdentityGenerator.fromUrl(finalUrl)
 
         if (response.status !in 20..29) {
             tab.error = GeminiError(
@@ -627,13 +634,14 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val mimeType = response.meta.lowercase().split(";").first().trim()
         when {
             mimeType.startsWith("image/") -> handleImageResponse(response, tab, finalUrl, mimeType)
-            mimeType == "text/gemini" || mimeType.isEmpty() -> handleGemtextResponse(response, tab)
+            mimeType == "text/gemini" || mimeType.isEmpty() ->
+                handleGemtextResponse(response, tab, finalUrl)
             mimeType.startsWith("text/") -> handleTextResponse(response, tab, finalUrl, mimeType)
             else -> handleDownloadResponse(response, tab, finalUrl, mimeType)
         }
 
         tab.updateDisplayedUrl(finalUrl)
-        tab.cachePage(finalUrl, tab.content, tab.rawBody, tab.title)
+        tab.cachePage(finalUrl, tab.content, tab.rawBody, tab.title, tab.capsuleIdentity)
         if (addToHistory) {
             historyManager.record(finalUrl, tab.title)
         }
@@ -659,10 +667,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         tab.title = finalUrl.substringAfterLast("/").ifEmpty { "Image" }
     }
 
-    private fun handleGemtextResponse(response: GeminiResponse, tab: TabState) {
+    private fun handleGemtextResponse(response: GeminiResponse, tab: TabState, finalUrl: String) {
         val bodyString = response.body?.toString(Charsets.UTF_8) ?: ""
         tab.rawBody = bodyString
-        val parsedContent = GeminiParser.parse(bodyString).toImmutableList()
+        val parsedContent = GeminiParser.parse(bodyString, baseUrl = finalUrl).toImmutableList()
         tab.content = parsedContent
         parsedContent.filterIsInstance<GeminiContent.Heading>()
             .firstOrNull { it.level == 1 }
@@ -700,7 +708,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             )
         )
         tab.content = listOf(
-            GeminiContent.Text(id = 0, text = "Download available: $fileName")
+            GeminiContent.Text(id = 0, text = getApplication<Application>().getString(R.string.download_available, fileName))
         ).toImmutableList()
         tab.title = fileName
     }
@@ -716,9 +724,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun handleTofuExpired(result: FetchResult.TofuExpired, tab: TabState) {
-        val expiredDate =
-            java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
-                .format(java.util.Date(result.expiredAt))
+        val expiredDate = formatTimestamp(result.expiredAt)
         tab.error = GeminiError(
             statusCode = 0,
             message = "Server certificate expired on $expiredDate",
@@ -728,9 +734,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun handleTofuNotYetValid(result: FetchResult.TofuNotYetValid, tab: TabState) {
-        val validFrom =
-            java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
-                .format(java.util.Date(result.notBefore))
+        val validFrom = formatTimestamp(result.notBefore)
         tab.error = GeminiError(
             statusCode = 0,
             message = "Server certificate is not yet valid (valid from $validFrom)",
@@ -780,9 +784,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         yield()
                     }
                     val localContent = loadLocalPage(targetUrl)
+                    currentTab.capsuleIdentity = CapsuleIdentityGenerator.fromUrl(targetUrl)
                     if (localContent != null) {
                         currentTab.rawBody = localContent
-                        val parsedContent = GeminiParser.parse(localContent).toImmutableList()
+                        val parsedContent = GeminiParser.parse(
+                            localContent,
+                            baseUrl = targetUrl
+                        ).toImmutableList()
                         currentTab.content = parsedContent
                         parsedContent.filterIsInstance<GeminiContent.Heading>()
                             .firstOrNull { it.level == 1 }
@@ -793,7 +801,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                             targetUrl,
                             currentTab.content,
                             currentTab.rawBody,
-                            currentTab.title
+                            currentTab.title,
+                            currentTab.capsuleIdentity
                         )
                     } else {
                         currentTab.error = GeminiError(
@@ -1165,7 +1174,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val clip = ClipData.newPlainText("Gemini Link", url)
         clipboardManager.setPrimaryClip(clip)
         viewModelScope.launch {
-            snackbarHostState.showSnackbar("Link copied to clipboard")
+            snackbarHostState.showSnackbar(getApplication<Application>().getString(R.string.link_copied_to_clipboard))
         }
     }
 
@@ -1556,19 +1565,11 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 app.getString(R.string.embedded_media_error_tofu_warning, result.host)
 
             is GeminiFetchResult.TofuExpired -> {
-                val expiredDate = java.text.SimpleDateFormat(
-                    "yyyy-MM-dd HH:mm",
-                    java.util.Locale.getDefault()
-                ).format(java.util.Date(result.expiredAt))
-                app.getString(R.string.embedded_media_error_tofu_expired, expiredDate)
+                app.getString(R.string.embedded_media_error_tofu_expired, formatTimestamp(result.expiredAt))
             }
 
             is GeminiFetchResult.TofuNotYetValid -> {
-                val validFrom = java.text.SimpleDateFormat(
-                    "yyyy-MM-dd HH:mm",
-                    java.util.Locale.getDefault()
-                ).format(java.util.Date(result.notBefore))
-                app.getString(R.string.embedded_media_error_tofu_not_yet_valid, validFrom)
+                app.getString(R.string.embedded_media_error_tofu_not_yet_valid, formatTimestamp(result.notBefore))
             }
 
             is GeminiFetchResult.CertificateRequired -> {
@@ -1588,5 +1589,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
             is GeminiFetchResult.Success -> app.getString(R.string.embedded_media_error_failed_to_load_media)
         }
+    }
+
+    // TODO: finally add utils.kt or something
+    private fun formatTimestamp(millis: Long): String {
+        return SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(millis))
     }
 }

@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import mysh.dev.gemcap.ui.theme.rememberTabChrome
 import mysh.dev.gemcap.ui.model.TabState
 
 @Composable
@@ -33,6 +34,10 @@ fun TabItem(
     onClosed: () -> Unit
 ) {
     val shape = SimpleChromeTabShape()
+    val chrome = rememberTabChrome(tab.capsuleIdentity)
+    val capsuleStyle = chrome.capsuleStyle
+    val titleColor = chrome.titleColor
+    val activeColor = capsuleStyle?.chromeAccentColor?.copy(alpha = 0.12f) ?: MaterialTheme.colorScheme.surface
 
     Box(
         modifier = Modifier
@@ -40,7 +45,7 @@ fun TabItem(
             .fillMaxHeight()
     ) {
         Surface(
-            color = if (isActive) MaterialTheme.colorScheme.surface else Color.Transparent,
+            color = if (isActive) activeColor else Color.Transparent,
             shape = shape,
             modifier = Modifier
                 .fillMaxSize()
@@ -50,9 +55,18 @@ fun TabItem(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(horizontal = 32.dp)
             ) {
+                if (!tab.capsuleIdentity?.icon.isNullOrBlank()) {
+                    Text(
+                        text = tab.capsuleIdentity?.icon.orEmpty(),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = capsuleStyle?.chromeAccentColor ?: titleColor,
+                        modifier = Modifier.padding(end = 6.dp)
+                    )
+                }
                 Text(
                     text = tab.title.ifEmpty { "New Tab" },
                     style = MaterialTheme.typography.labelLarge,
+                    color = titleColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)

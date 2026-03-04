@@ -8,9 +8,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import mysh.dev.gemcap.domain.CapsuleIdentity
 import mysh.dev.gemcap.domain.GeminiContent
 import mysh.dev.gemcap.domain.GeminiError
+import java.util.Collections
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Cached page data for instant back/forward navigation.
@@ -18,7 +21,8 @@ import java.util.UUID
 data class PageCache(
     val content: ImmutableList<GeminiContent>,
     val rawBody: String?,
-    val title: String
+    val title: String,
+    val capsuleIdentity: CapsuleIdentity?
 )
 
 data class ScrollPosition(
@@ -48,19 +52,21 @@ class TabState(
     var error by mutableStateOf<GeminiError?>(null)
     var content by mutableStateOf<ImmutableList<GeminiContent>>(persistentListOf())
     var rawBody by mutableStateOf<String?>(null)
+    var capsuleIdentity by mutableStateOf<CapsuleIdentity?>(null)
 
     // Screenshot preview for tab switcher
     var previewBitmap by mutableStateOf<ImageBitmap?>(null)
 
     // History management - historyIndex is observable for BackHandler to work properly
-    private val history = mutableListOf<String>()
+    // and history is accessed from multiple coroutine contexts
+    private val history = Collections.synchronizedList(mutableListOf<String>())
     private var historyIndex by mutableIntStateOf(-1)
 
     // Page cache for back/forward navigation
-    private val pageCache = mutableMapOf<String, PageCache>()
+    private val pageCache = ConcurrentHashMap<String, PageCache>()
 
     // Scroll position cache for back/forward navigation
-    private val scrollPositions = mutableMapOf<String, ScrollPosition>()
+    private val scrollPositions = ConcurrentHashMap<String, ScrollPosition>()
 
     /**
      * Get cached content for a URL, if available.
@@ -74,9 +80,10 @@ class TabState(
         pageUrl: String,
         pageContent: ImmutableList<GeminiContent>,
         pageRawBody: String?,
-        pageTitle: String
+        pageTitle: String,
+        pageCapsuleIdentity: CapsuleIdentity?
     ) {
-        pageCache[pageUrl] = PageCache(pageContent, pageRawBody, pageTitle)
+        pageCache[pageUrl] = PageCache(pageContent, pageRawBody, pageTitle, pageCapsuleIdentity)
     }
 
     /**
@@ -86,6 +93,7 @@ class TabState(
         content = cached.content
         rawBody = cached.rawBody
         title = cached.title
+        capsuleIdentity = cached.capsuleIdentity
         error = null
         displayedUrl = pageUrl
     }
@@ -113,69 +121,82 @@ class TabState(
     }
 
     fun addToHistory(newUrl: String) {
-        // If we are not at the end of history, clear forward history
-        if (historyIndex < history.size - 1) {
-            history.subList(historyIndex + 1, history.size).clear()
+        synchronized(history) {
+            // If we are not at the end of history, clear forward history
+            if (historyIndex < history.size - 1) {
+                history.subList(historyIndex + 1, history.size).clear()
+            }
+            history.add(newUrl)
+            historyIndex = history.size - 1
         }
-        history.add(newUrl)
-        historyIndex = history.size - 1
         url = newUrl
     }
 
-    fun canGoBack(): Boolean = historyIndex > 0
-    fun canGoForward(): Boolean = historyIndex < history.size - 1
+    fun canGoBack(): Boolean = synchronized(history) { historyIndex > 0 }
+    fun canGoForward(): Boolean = synchronized(history) { historyIndex < history.size - 1 }
 
     fun goBack(): String? {
-        if (canGoBack()) {
-            historyIndex--
-            url = history[historyIndex]
-            return url
+        synchronized(history) {
+            if (canGoBack()) {
+                historyIndex--
+                url = history[historyIndex]
+                return url
+            }
         }
         return null
     }
 
     fun goForward(): String? {
-        if (canGoForward()) {
-            historyIndex++
-            url = history[historyIndex]
-            return url
+        synchronized(history) {
+            if (canGoForward()) {
+                historyIndex++
+                url = history[historyIndex]
+                return url
+            }
         }
         return null
     }
     fun restoreHistory(historyUrls: List<String>, index: Int) {
-        history.clear()
-        history.addAll(historyUrls.filter { it.isNotBlank() })
-        if (history.isEmpty()) {
-            historyIndex = -1
-            return
+        synchronized(history) {
+            history.clear()
+            history.addAll(historyUrls.filter { it.isNotBlank() })
+            if (history.isEmpty()) {
+                historyIndex = -1
+                return
+            }
+            historyIndex = index.coerceIn(0, history.lastIndex)
+            url = history[historyIndex]
         }
-        historyIndex = index.coerceIn(0, history.lastIndex)
-        url = history[historyIndex]
     }
     fun restoreScrollPositions(positions: Map<String, ScrollPosition>) {
         scrollPositions.clear()
         scrollPositions.putAll(positions)
     }
     fun buildPersistedHistoryWindow(maxEntries: Int): PersistedHistoryWindow {
-        if (history.isEmpty()) {
-            return PersistedHistoryWindow(emptyList(), 0, emptyMap())
-        }
-        val boundedMax = maxEntries.coerceAtLeast(1)
-        val current = historyIndex.coerceIn(0, history.lastIndex)
-        if (history.size <= boundedMax) {
-            val entries = history.toList()
-            val persistedScroll = entries.associateWith { key ->
-                scrollPositions[key] ?: ScrollPosition()
+        synchronized(history) {
+            if (history.isEmpty()) {
+                return PersistedHistoryWindow(emptyList(), 0, emptyMap())
             }
-            return PersistedHistoryWindow(entries, current, persistedScroll)
+            val boundedMax = maxEntries.coerceAtLeast(1)
+            val current = historyIndex.coerceIn(0, history.lastIndex)
+            val entries: List<String>
+            val adjustedIndex: Int
+            if (history.size <= boundedMax) {
+                entries = history.toList()
+                adjustedIndex = current
+            } else {
+                val halfWindow = boundedMax / 2
+                val start = (current - halfWindow).coerceIn(0, history.size - boundedMax)
+                val end = start + boundedMax
+                entries = history.subList(start, end).toList()
+                adjustedIndex = current - start
+            }
+            // Use last occurrence's scroll position for duplicate URLs
+            val persistedScroll = mutableMapOf<String, ScrollPosition>()
+            for (entry in entries) {
+                persistedScroll.putIfAbsent(entry, scrollPositions[entry] ?: ScrollPosition())
+            }
+            return PersistedHistoryWindow(entries, adjustedIndex, persistedScroll)
         }
-        val halfWindow = boundedMax / 2
-        val start = (current - halfWindow).coerceIn(0, history.size - boundedMax)
-        val end = start + boundedMax
-        val entries = history.subList(start, end).toList()
-        val persistedScroll = entries.associateWith { key ->
-            scrollPositions[key] ?: ScrollPosition()
-        }
-        return PersistedHistoryWindow(entries, current - start, persistedScroll)
     }
 }

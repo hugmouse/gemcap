@@ -10,8 +10,6 @@ import mysh.dev.gemcap.util.PemUtils
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.KeyStore
-import javax.naming.InvalidNameException
-import javax.naming.ldap.LdapName
 
 private const val TAG = "ClientCertRepository"
 
@@ -24,6 +22,8 @@ class ClientCertRepository(context: Context) {
 
     private val prefs = context.getSharedPreferences("client_certs", Context.MODE_PRIVATE)
     private val identityStorage = EncryptedIdentityStorage(context)
+    private val cacheLock = Any()
+    private var cachedCertificates: List<ClientCertificate>? = null
 
     companion object {
         private const val KEY_CERTIFICATES = "certificates"
@@ -39,7 +39,8 @@ class ClientCertRepository(context: Context) {
     /**
      * Retrieves all stored identities.
      */
-    fun getCertificates(): List<ClientCertificate> {
+    fun getCertificates(): List<ClientCertificate> = synchronized(cacheLock) {
+        cachedCertificates?.let { return it }
         val json = prefs.getString(KEY_CERTIFICATES, null) ?: return emptyList()
         return try {
             val array = JSONArray(json)
@@ -50,6 +51,7 @@ class ClientCertRepository(context: Context) {
             if (available.size != parsed.size) {
                 saveCertificates(available)
             }
+            cachedCertificates = available
             available
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse certificates JSON", e)
@@ -57,7 +59,7 @@ class ClientCertRepository(context: Context) {
         }
     }
 
-    fun addCertificate(certificate: ClientCertificate) {
+    fun addCertificate(certificate: ClientCertificate): Unit = synchronized(cacheLock) {
         val certificates = getCertificates().toMutableList()
         certificates.removeAll { it.alias == certificate.alias }
         certificates.add(0, certificate)
@@ -65,7 +67,7 @@ class ClientCertRepository(context: Context) {
         Log.d(TAG, "Added certificate: ${certificate.alias}")
     }
 
-    fun addUsage(alias: String, usage: IdentityUsage) {
+    fun addUsage(alias: String, usage: IdentityUsage): Unit = synchronized(cacheLock) {
         val certificates = getCertificates().map { cert ->
             if (cert.alias == alias) {
                 val updatedUsages = cert.usages.filterNot {
@@ -80,7 +82,7 @@ class ClientCertRepository(context: Context) {
         Log.d(TAG, "Added usage to $alias: $usage")
     }
 
-    fun removeUsage(alias: String, usage: IdentityUsage) {
+    fun removeUsage(alias: String, usage: IdentityUsage): Unit = synchronized(cacheLock) {
         val certificates = getCertificates().map { cert ->
             if (cert.alias == alias) {
                 cert.copy(
@@ -96,7 +98,7 @@ class ClientCertRepository(context: Context) {
         Log.d(TAG, "Removed usage from $alias: $usage")
     }
 
-    fun removeCertificate(alias: String) {
+    fun removeCertificate(alias: String): Unit = synchronized(cacheLock) {
         val deleteSucceeded = try {
             identityStorage.deleteIdentity(alias)
         } catch (e: Exception) {
@@ -113,7 +115,7 @@ class ClientCertRepository(context: Context) {
         Log.d(TAG, "Removed certificate: $alias")
     }
 
-    fun setActive(alias: String, isActive: Boolean) {
+    fun setActive(alias: String, isActive: Boolean): Unit = synchronized(cacheLock) {
         val certificates = getCertificates().map {
             if (it.alias == alias) it.copy(isActive = isActive) else it
         }
@@ -251,25 +253,10 @@ class ClientCertRepository(context: Context) {
         previous: ClientCertificate?
     ): ClientCertificate {
         val subjectDn = certificate.subjectX500Principal.name
-        var commonName: String? = null
-        var email: String? = null
-        var organization: String? = null
-
-        try {
-            val ldapName = LdapName(subjectDn)
-            ldapName.rdns.forEach { rdn ->
-                val value = rdn.value?.toString() ?: return@forEach
-                when {
-                    rdn.type.equals("CN", ignoreCase = true) && commonName == null -> commonName = value
-                    rdn.type.equals("EMAILADDRESS", ignoreCase = true) && email == null -> email = value
-                    rdn.type.equals("O", ignoreCase = true) && organization == null -> organization = value
-                }
-            }
-        } catch (_: IllegalArgumentException) {
-            // Fall back to the raw subject DN values below.
-        } catch (_: InvalidNameException) {
-            // Fall back to the raw subject DN values below.
-        }
+        val attrs = parseX500Dn(subjectDn)
+        val commonName = attrs["CN"]
+        val email = attrs["EMAILADDRESS"] ?: attrs["1.2.840.113549.1.9.1"]
+        val organization = attrs["O"]
 
         return ClientCertificate(
             alias = alias,
@@ -282,6 +269,119 @@ class ClientCertRepository(context: Context) {
             expiresAt = certificate.notAfter.time,
             isActive = previous?.isActive ?: true
         )
+    }
+
+    /**
+     * Parses an RFC 2253 X.500 Distinguished Name into a map of attribute types to values.
+     * Returns the first value for each attribute type (uppercased keys).
+     * Supports both comma and semicolon separators per RFC 2253.
+     */
+    private fun parseX500Dn(dn: String): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        for (rdn in splitDnComponents(dn)) {
+            for (subRdn in splitOnUnescapedPlus(rdn)) {
+                val eqIndex = subRdn.indexOf('=')
+                if (eqIndex > 0) {
+                    val type = subRdn.substring(0, eqIndex).trim().uppercase()
+                    val value = unescapeDnValue(subRdn.substring(eqIndex + 1).trim())
+                    if (value.isNotEmpty()) {
+                        result.putIfAbsent(type, value)
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    /**
+     * Splits a single RDN on unescaped '+' to handle multivalued RDNs.
+     * Though I don't think it's possible to do something like this from
+     * Lagrange.
+     **/
+    private fun splitOnUnescapedPlus(rdn: String): List<String> {
+        val parts = mutableListOf<String>()
+        val current = StringBuilder()
+        var i = 0
+        var inQuote = false
+        while (i < rdn.length) {
+            val c = rdn[i]
+            when {
+                c == '\\' && i + 1 < rdn.length -> {
+                    current.append(c).append(rdn[i + 1])
+                    i += 2
+                }
+                c == '"' -> {
+                    inQuote = !inQuote
+                    i++
+                }
+                c == '+' && !inQuote -> {
+                    parts.add(current.toString())
+                    current.clear()
+                    i++
+                }
+                else -> {
+                    current.append(c)
+                    i++
+                }
+            }
+        }
+        if (current.isNotEmpty()) {
+            parts.add(current.toString())
+        }
+        return parts
+    }
+
+    /**
+     * Splits an RFC 2253 DN string on unescaped commas or semicolons.
+     * */
+    private fun splitDnComponents(dn: String): List<String> {
+        val parts = mutableListOf<String>()
+        val current = StringBuilder()
+        var i = 0
+        var inQuote = false
+        while (i < dn.length) {
+            val c = dn[i]
+            when {
+                c == '\\' && i + 1 < dn.length -> {
+                    current.append(c).append(dn[i + 1])
+                    i += 2
+                }
+                c == '"' -> {
+                    inQuote = !inQuote
+                    i++
+                }
+                (c == ',' || c == ';') && !inQuote -> {
+                    parts.add(current.toString())
+                    current.clear()
+                    i++
+                }
+                else -> {
+                    current.append(c)
+                    i++
+                }
+            }
+        }
+        if (current.isNotEmpty()) {
+            parts.add(current.toString())
+        }
+        return parts
+    }
+
+    /** Unescapes an RFC 2253 DN attribute value. */
+    private fun unescapeDnValue(value: String): String {
+        val trimmed = value.removeSurrounding("\"")
+        val sb = StringBuilder()
+        var i = 0
+        while (i < trimmed.length) {
+            if (trimmed[i] == '\\' && i + 1 < trimmed.length) {
+                sb.append(trimmed[i + 1])
+                i += 2
+            } else {
+                sb.append(trimmed[i])
+                i++
+            }
+        }
+        return sb.toString().trim()
     }
 
     private fun runBetaMigrationIfNeeded() {
@@ -341,7 +441,8 @@ class ClientCertRepository(context: Context) {
         }
     }
 
-    private fun saveCertificates(certificates: List<ClientCertificate>) {
+    private fun saveCertificates(certificates: List<ClientCertificate>) = synchronized(cacheLock) {
+        cachedCertificates = null
         val array = JSONArray()
         certificates.forEach { cert ->
             val obj = JSONObject().apply {
@@ -373,8 +474,8 @@ class ClientCertRepository(context: Context) {
     }
 }
 
-sealed class IdentityImportStoreResult {
-    data class Success(val certificate: ClientCertificate) : IdentityImportStoreResult()
-    data class Error(val message: String) : IdentityImportStoreResult()
-    object NeedsPassphrase : IdentityImportStoreResult()
+sealed interface IdentityImportStoreResult {
+    data class Success(val certificate: ClientCertificate) : IdentityImportStoreResult
+    data class Error(val message: String) : IdentityImportStoreResult
+    data object NeedsPassphrase : IdentityImportStoreResult
 }

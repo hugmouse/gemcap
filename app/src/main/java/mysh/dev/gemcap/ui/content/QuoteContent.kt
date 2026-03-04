@@ -1,7 +1,6 @@
 package mysh.dev.gemcap.ui.content
 
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -17,9 +16,10 @@ fun QuoteContent(
     styles: CachedTextStyles,
     searchQuery: String
 ) {
-    val borderColor = styles.tertiaryColor
+    val borderColor = styles.quoteIndicatorColor
     Text(
         modifier = Modifier
+            .padding(start = styles.linkIconIndent)
             .drawBehind {
                 drawLine(
                     color = borderColor,
@@ -29,7 +29,8 @@ fun QuoteContent(
                 )
             }
             .padding(start = 8.dp),
-        text = highlight(item.text, searchQuery, MaterialTheme.colorScheme.primaryContainer),
-        style = styles.quoteStyle
+        text = highlight(item.text, searchQuery, styles.highlightColor),
+        style = styles.quoteStyle,
+        color = styles.quoteTextColor
     )
 }

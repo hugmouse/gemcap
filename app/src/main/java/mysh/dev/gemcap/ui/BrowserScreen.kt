@@ -2,6 +2,7 @@ package mysh.dev.gemcap.ui
 
 import android.util.Log
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -57,6 +58,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -74,6 +76,7 @@ import mysh.dev.gemcap.data.FontSize
 import mysh.dev.gemcap.data.SearchEngine
 import mysh.dev.gemcap.data.ThemeMode
 import mysh.dev.gemcap.domain.GeminiContent
+import mysh.dev.gemcap.R
 import mysh.dev.gemcap.domain.GeminiError
 import mysh.dev.gemcap.ui.callbacks.BrowserCallbacks
 import mysh.dev.gemcap.ui.callbacks.BrowserCallbacksImpl
@@ -91,6 +94,7 @@ import mysh.dev.gemcap.ui.model.HOME_URL
 import mysh.dev.gemcap.ui.model.SearchState
 import mysh.dev.gemcap.ui.model.TabState
 import mysh.dev.gemcap.ui.model.TabsUiState
+import mysh.dev.gemcap.ui.theme.rememberTabChrome
 import mysh.dev.gemcap.util.ScreenshotUtils
 
 private const val TAG = "Recomposition"
@@ -437,7 +441,7 @@ private fun BrowserContent(
 
         when {
             activeTab == null -> {
-                Text("No Tabs Open", modifier = Modifier.align(Alignment.Center))
+                Text(stringResource(R.string.no_tabs_open), modifier = Modifier.align(Alignment.Center))
             }
 
             activeTab.isLoading && activeTab.content.isEmpty() -> {
@@ -530,7 +534,10 @@ private fun GeminiContentList(
 ) {
     logRecomposition { ">>> GeminiContentList (${content.size} items)" }
 
-    val cachedStyles = rememberCachedTextStyles()
+    val capsuleStyle = rememberTabChrome(tab.capsuleIdentity).capsuleStyle
+    val cachedStyles = rememberCachedTextStyles(capsuleStyle)
+    val contentBackground = capsuleStyle?.backgroundColor
+        ?: MaterialTheme.colorScheme.background
     val currentPageUrl = tab.displayedUrl
     val listState = remember(tab.id, currentPageUrl) {
         val scrollPosition = tab.getScrollPosition(currentPageUrl)
@@ -609,7 +616,9 @@ private fun GeminiContentList(
     ) {
         SelectionContainer {
             Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(contentBackground),
                 contentAlignment = Alignment.TopCenter
             ) {
                 LazyColumn(

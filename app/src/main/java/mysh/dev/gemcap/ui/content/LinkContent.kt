@@ -4,16 +4,9 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.text.selection.DisableSelection
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.KeyboardDoubleArrowRight
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.Link
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -25,7 +18,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import mysh.dev.gemcap.domain.GeminiContent
+import mysh.dev.gemcap.domain.LinkIconResolver
 import mysh.dev.gemcap.util.highlight
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.ui.res.stringResource
+import mysh.dev.gemcap.R
 
 @Composable
 fun LinkContent(
@@ -37,36 +36,34 @@ fun LinkContent(
     onOpenInNewTab: (String) -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
-    val isHttpLink = remember(item.url) {
-        item.url.startsWith("http://", ignoreCase = true) || item.url.startsWith("https://", ignoreCase = true)
-    }
-    val linkIcon = if (isHttpLink) Icons.Default.Language else Icons.Default.KeyboardDoubleArrowRight
-    val linkIconDescription = if (isHttpLink) "HTTP/HTTPS link" else "Gemini link"
+    val iconGlyph = remember(item) { LinkIconResolver.iconFor(item) }
+    val linkIconDescription = remember(item) { LinkIconResolver.descriptionFor(item) }
+    val targetUrl = remember(item.url, item.resolvedUrl) { item.resolvedUrl ?: item.url }
 
-    val gestureModifier = Modifier.pointerInput(Unit) {
+    val gestureModifier = Modifier.pointerInput(targetUrl) {
         detectTapGestures(
-            onTap = { onLinkClick(item.url) },
+            onTap = { onLinkClick(targetUrl) },
             onLongPress = { showMenu = true }
         )
     }
 
-    // TODO: padding for Icons.Default.Language is a little bit too tight, it needs to be bigger
     Row(
         modifier = gestureModifier,
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Icon(
-            imageVector = linkIcon,
-            contentDescription = linkIconDescription,
-            tint = styles.primaryColor
+        Text(
+            text = iconGlyph,
+            style = styles.bodyLarge,
+            color = styles.linkIconColor
         )
         Text(
             text = highlight(
                 item.text,
                 searchQuery,
-                MaterialTheme.colorScheme.primaryContainer
+                styles.highlightColor
             ),
-            color = styles.primaryColor,
+            color = styles.linkTextColor,
             style = styles.linkStyle
         )
     }
@@ -77,19 +74,22 @@ fun LinkContent(
             onDismissRequest = { showMenu = false }
         ) {
             DropdownMenuItem(
-                text = { Text("Open in new tab") },
+                text = { Text(stringResource(R.string.link_menu_open_new_tab)) },
                 onClick = {
-                    onOpenInNewTab(item.url)
+                    onOpenInNewTab(targetUrl)
                     showMenu = false
                 },
                 leadingIcon = {
-                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                        contentDescription = linkIconDescription
+                    )
                 }
             )
             DropdownMenuItem(
-                text = { Text("Copy link address") },
+                text = { Text(stringResource(R.string.link_menu_copy_address)) },
                 onClick = {
-                    onCopyLink(item.url)
+                    onCopyLink(targetUrl)
                     showMenu = false
                 },
                 leadingIcon = {

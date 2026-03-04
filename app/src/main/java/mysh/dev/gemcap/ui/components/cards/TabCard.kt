@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,6 +29,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import mysh.dev.gemcap.ui.theme.rememberTabChrome
 import mysh.dev.gemcap.ui.model.TabState
 
 @Composable
@@ -38,7 +40,12 @@ fun TabCard(
     onClosed: () -> Unit,
     aspectRatio: Float
 ) {
-    val cardColor = if (isActive) {
+    val chrome = rememberTabChrome(tab.capsuleIdentity)
+    val capsuleStyle = chrome.capsuleStyle
+    val titleColor = chrome.titleColor
+    val cardColor = if (isActive && capsuleStyle != null) {
+        capsuleStyle.chromeAccentColor.copy(alpha = 0.15f)
+    } else if (isActive) {
         MaterialTheme.colorScheme.primaryContainer
     } else {
         MaterialTheme.colorScheme.surfaceVariant
@@ -60,12 +67,24 @@ fun TabCard(
                     .padding(12.dp)
             ) {
                 // Title area
-                Text(
-                    text = tab.title.ifEmpty { "New Tab" },
-                    style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (!tab.capsuleIdentity?.icon.isNullOrBlank()) {
+                        Text(
+                            text = tab.capsuleIdentity?.icon.orEmpty(),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = capsuleStyle?.chromeAccentColor ?: titleColor,
+                            modifier = Modifier.padding(end = 6.dp)
+                        )
+                    }
+                    Text(
+                        text = tab.title.ifEmpty { "New Tab" },
+                        style = MaterialTheme.typography.labelLarge,
+                        color = titleColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(4.dp))
 
