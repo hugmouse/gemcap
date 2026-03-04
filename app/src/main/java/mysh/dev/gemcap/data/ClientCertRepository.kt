@@ -22,6 +22,7 @@ class ClientCertRepository(context: Context) {
 
     private val prefs = context.getSharedPreferences("client_certs", Context.MODE_PRIVATE)
     private val identityStorage = EncryptedIdentityStorage(context)
+    private val cacheLock = Any()
     private var cachedCertificates: List<ClientCertificate>? = null
 
     companion object {
@@ -38,7 +39,7 @@ class ClientCertRepository(context: Context) {
     /**
      * Retrieves all stored identities.
      */
-    fun getCertificates(): List<ClientCertificate> {
+    fun getCertificates(): List<ClientCertificate> = synchronized(cacheLock) {
         cachedCertificates?.let { return it }
         val json = prefs.getString(KEY_CERTIFICATES, null) ?: return emptyList()
         return try {
@@ -58,7 +59,7 @@ class ClientCertRepository(context: Context) {
         }
     }
 
-    fun addCertificate(certificate: ClientCertificate) {
+    fun addCertificate(certificate: ClientCertificate): Unit = synchronized(cacheLock) {
         val certificates = getCertificates().toMutableList()
         certificates.removeAll { it.alias == certificate.alias }
         certificates.add(0, certificate)
@@ -66,7 +67,7 @@ class ClientCertRepository(context: Context) {
         Log.d(TAG, "Added certificate: ${certificate.alias}")
     }
 
-    fun addUsage(alias: String, usage: IdentityUsage) {
+    fun addUsage(alias: String, usage: IdentityUsage): Unit = synchronized(cacheLock) {
         val certificates = getCertificates().map { cert ->
             if (cert.alias == alias) {
                 val updatedUsages = cert.usages.filterNot {
@@ -81,7 +82,7 @@ class ClientCertRepository(context: Context) {
         Log.d(TAG, "Added usage to $alias: $usage")
     }
 
-    fun removeUsage(alias: String, usage: IdentityUsage) {
+    fun removeUsage(alias: String, usage: IdentityUsage): Unit = synchronized(cacheLock) {
         val certificates = getCertificates().map { cert ->
             if (cert.alias == alias) {
                 cert.copy(
@@ -97,7 +98,7 @@ class ClientCertRepository(context: Context) {
         Log.d(TAG, "Removed usage from $alias: $usage")
     }
 
-    fun removeCertificate(alias: String) {
+    fun removeCertificate(alias: String): Unit = synchronized(cacheLock) {
         val deleteSucceeded = try {
             identityStorage.deleteIdentity(alias)
         } catch (e: Exception) {
@@ -114,7 +115,7 @@ class ClientCertRepository(context: Context) {
         Log.d(TAG, "Removed certificate: $alias")
     }
 
-    fun setActive(alias: String, isActive: Boolean) {
+    fun setActive(alias: String, isActive: Boolean): Unit = synchronized(cacheLock) {
         val certificates = getCertificates().map {
             if (it.alias == alias) it.copy(isActive = isActive) else it
         }
@@ -400,7 +401,7 @@ class ClientCertRepository(context: Context) {
         }
     }
 
-    private fun saveCertificates(certificates: List<ClientCertificate>) {
+    private fun saveCertificates(certificates: List<ClientCertificate>) = synchronized(cacheLock) {
         cachedCertificates = null
         val array = JSONArray()
         certificates.forEach { cert ->
