@@ -360,7 +360,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         dialogManager.setDownloadMessage(
             result.fold(
                 onSuccess = { app.getString(R.string.download_saved, it) },
-                onFailure = { app.getString(R.string.download_failed, it.message) }
+                onFailure = { app.getString(R.string.download_failed, it.message ?: it.toString()) }
             )
         )
     }
