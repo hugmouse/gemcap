@@ -276,9 +276,8 @@ class ClientCertRepository(context: Context) {
      * Supports both comma and semicolon separators per RFC 2253.
      */
     private fun parseX500Dn(dn: String): Map<String, String> {
-        val normalizedDn = dn.replace(';', ',')  // Replace ; with , per RFC 2253 [page:0]
         val result = mutableMapOf<String, String>()
-        for (rdn in splitDnComponents(normalizedDn)) {
+        for (rdn in splitDnComponents(dn)) {
             val eqIndex = rdn.indexOf('=')
             if (eqIndex > 0) {
                 val type = rdn.substring(0, eqIndex).trim().uppercase()
@@ -291,7 +290,9 @@ class ClientCertRepository(context: Context) {
         return result
     }
 
-    /** Splits an RFC 2253 DN string on unescaped commas. */
+    /**
+     * Splits an RFC 2253 DN string on unescaped commas or semicolons.
+     * */
     private fun splitDnComponents(dn: String): List<String> {
         val parts = mutableListOf<String>()
         val current = StringBuilder()
@@ -308,7 +309,7 @@ class ClientCertRepository(context: Context) {
                     inQuote = !inQuote
                     i++
                 }
-                c == ',' && !inQuote -> {
+                (c == ',' || c == ';') && !inQuote -> {
                     parts.add(current.toString())
                     current.clear()
                     i++
