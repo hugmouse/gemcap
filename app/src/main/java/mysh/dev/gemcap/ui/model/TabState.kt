@@ -132,8 +132,8 @@ class TabState(
         url = newUrl
     }
 
-    fun canGoBack(): Boolean = historyIndex > 0
-    fun canGoForward(): Boolean = historyIndex < history.size - 1
+    fun canGoBack(): Boolean = synchronized(history) { historyIndex > 0 }
+    fun canGoForward(): Boolean = synchronized(history) { historyIndex < history.size - 1 }
 
     fun goBack(): String? {
         synchronized(history) {
