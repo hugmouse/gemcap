@@ -281,7 +281,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         bookmarkManager.updateBookmarkStatus(activeTab?.url)
         // Lazy-load tabs that haven't been loaded yet (e.g., restored from session)
         val tab = activeTab ?: return
-        if (!tab.isLoading && tab.content.isEmpty() && tab.error == null && tab.url != HOME_URL) {
+        if (!tab.isLoading && tab.content.isEmpty() && tab.error == null) {
             loadPage(addToHistory = false)
         }
     }
