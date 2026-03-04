@@ -13,6 +13,7 @@ object LinkIconResolver {
     private const val GUPPY = "\uD83D\uDC1F"        // 🐟
     private const val SPARTAN = "\uD83D\uDCAA"       // 💪
     private const val FONTPACK = "\uD83D\uDD20"      // 🔠
+    private const val MUSICAL_NOTE = "\uD83C\uDFB5"  // 🎵
 
     fun iconFor(link: GeminiContent.Link): String {
         if (LinkFlag.ICON_FROM_LABEL in link.flags && !link.labelIcon.isNullOrBlank()) {
@@ -33,6 +34,7 @@ object LinkIconResolver {
             else -> when {
                 LinkFlag.REMOTE in link.flags -> GLOBE
                 LinkFlag.IMAGE_EXT in link.flags -> IMAGE
+                LinkFlag.AUDIO_EXT in link.flags -> MUSICAL_NOTE
                 LinkFlag.FONTPACK_EXT in link.flags -> FONTPACK
                 else -> ARROW
             }
