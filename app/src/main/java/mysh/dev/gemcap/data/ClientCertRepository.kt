@@ -279,16 +279,56 @@ class ClientCertRepository(context: Context) {
     private fun parseX500Dn(dn: String): Map<String, String> {
         val result = mutableMapOf<String, String>()
         for (rdn in splitDnComponents(dn)) {
-            val eqIndex = rdn.indexOf('=')
-            if (eqIndex > 0) {
-                val type = rdn.substring(0, eqIndex).trim().uppercase()
-                val value = unescapeDnValue(rdn.substring(eqIndex + 1).trim())
-                if (value.isNotEmpty()) {
-                    result.putIfAbsent(type, value)
+            for (subRdn in splitOnUnescapedPlus(rdn)) {
+                val eqIndex = subRdn.indexOf('=')
+                if (eqIndex > 0) {
+                    val type = subRdn.substring(0, eqIndex).trim().uppercase()
+                    val value = unescapeDnValue(subRdn.substring(eqIndex + 1).trim())
+                    if (value.isNotEmpty()) {
+                        result.putIfAbsent(type, value)
+                    }
                 }
             }
         }
         return result
+    }
+
+    /**
+     * Splits a single RDN on unescaped '+' to handle multivalued RDNs.
+     * Though I don't think it's possible to do something like this from
+     * Lagrange.
+     **/
+    private fun splitOnUnescapedPlus(rdn: String): List<String> {
+        val parts = mutableListOf<String>()
+        val current = StringBuilder()
+        var i = 0
+        var inQuote = false
+        while (i < rdn.length) {
+            val c = rdn[i]
+            when {
+                c == '\\' && i + 1 < rdn.length -> {
+                    current.append(c).append(rdn[i + 1])
+                    i += 2
+                }
+                c == '"' -> {
+                    inQuote = !inQuote
+                    i++
+                }
+                c == '+' && !inQuote -> {
+                    parts.add(current.toString())
+                    current.clear()
+                    i++
+                }
+                else -> {
+                    current.append(c)
+                    i++
+                }
+            }
+        }
+        if (current.isNotEmpty()) {
+            parts.add(current.toString())
+        }
+        return parts
     }
 
     /**
