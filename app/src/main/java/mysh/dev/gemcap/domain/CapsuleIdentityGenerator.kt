@@ -2,7 +2,6 @@ package mysh.dev.gemcap.domain
 
 import android.annotation.SuppressLint
 import android.net.Uri
-import java.net.URI
 import java.util.Locale
 
 // Identity generation ported from Lagrange:
@@ -29,11 +28,13 @@ object CapsuleIdentityGenerator {
 
     fun fromUrl(url: String): CapsuleIdentity {
         val normalizedUrl = url.trim()
+        @SuppressLint("UseKtx")
+        val parsedUri = Uri.parse(normalizedUrl)
         // Lagrange seed-source flow:
         //   setThemeSeed_GmDocument(..., urlPaletteSeed_String(url), urlThemeSeed_String(url))
         // See src/gmdocument.c:2348 and src/gmutil.c:324-345.
-        val themeSeedSource = themeSeedSource(normalizedUrl)
-        val paletteSeedSource = paletteSeedSource(normalizedUrl, themeSeedSource)
+        val themeSeedSource = themeSeedSource(parsedUri)
+        val paletteSeedSource = paletteSeedSource(parsedUri, themeSeedSource)
         val themeSeed = themeHash(themeSeedSource)
         val paletteSeed = themeHash(paletteSeedSource)
 
@@ -61,9 +62,7 @@ object CapsuleIdentityGenerator {
         )
     }
 
-    private fun themeSeedSource(url: String): String {
-        @SuppressLint("UseKtx")
-        val uri = Uri.parse(url) ?: return ""
+    private fun themeSeedSource(uri: Uri): String {
         if (uri.scheme?.equals("file", ignoreCase = true) == true) return ""
         val path = uri.encodedPath.orEmpty()
         val userMatch = userPathPattern.find(path)?.groupValues?.getOrNull(1)
@@ -73,15 +72,13 @@ object CapsuleIdentityGenerator {
 
 
     // Partial port of src/gmutil.c:urlPaletteSeed_String() (335-345).
-    private fun paletteSeedSource(url: String, defaultSource: String): String {
+    private fun paletteSeedSource(uri: Uri, defaultSource: String): String {
         // Lagrange also checks a site-specific override (valueString_SiteSpec + paletteSeed key),
         // which is not implemented in Gemcap.
         //
         // The file-scheme check is redundant with themeSeedSource but kept for parity with
         // Lagrange's urlPaletteSeed_String() and to support future site-specific overrides
         // that might never arrive.
-        @SuppressLint("UseKtx")
-        val uri = Uri.parse(url) ?: return defaultSource
         if (uri.scheme.equals("file", ignoreCase = true)) {
             return ""
         }
