@@ -94,8 +94,7 @@ import mysh.dev.gemcap.ui.model.HOME_URL
 import mysh.dev.gemcap.ui.model.SearchState
 import mysh.dev.gemcap.ui.model.TabState
 import mysh.dev.gemcap.ui.model.TabsUiState
-import mysh.dev.gemcap.ui.theme.CapsuleStyleGenerator
-import mysh.dev.gemcap.ui.theme.isDarkMode
+import mysh.dev.gemcap.ui.theme.rememberTabChrome
 import mysh.dev.gemcap.util.ScreenshotUtils
 
 private const val TAG = "Recomposition"
@@ -535,10 +534,7 @@ private fun GeminiContentList(
 ) {
     logRecomposition { ">>> GeminiContentList (${content.size} items)" }
 
-    val isDarkMode = isDarkMode()
-    val capsuleStyle = remember(tab.capsuleIdentity, isDarkMode) {
-        CapsuleStyleGenerator.fromIdentity(tab.capsuleIdentity, isDarkMode)
-    }
+    val capsuleStyle = rememberTabChrome(tab.capsuleIdentity).capsuleStyle
     val cachedStyles = rememberCachedTextStyles(capsuleStyle)
     val contentBackground = capsuleStyle?.backgroundColor
         ?: MaterialTheme.colorScheme.background

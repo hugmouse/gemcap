@@ -23,15 +23,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import mysh.dev.gemcap.ui.theme.CapsuleStyleGenerator
-import mysh.dev.gemcap.ui.theme.isDarkMode
+import mysh.dev.gemcap.ui.theme.rememberTabChrome
 import mysh.dev.gemcap.ui.model.TabState
 
 @Composable
@@ -42,10 +40,9 @@ fun TabCard(
     onClosed: () -> Unit,
     aspectRatio: Float
 ) {
-    val isDarkMode = isDarkMode()
-    val capsuleStyle = remember(tab.capsuleIdentity, isDarkMode) {
-        CapsuleStyleGenerator.fromIdentity(tab.capsuleIdentity, isDarkMode)
-    }
+    val chrome = rememberTabChrome(tab.capsuleIdentity)
+    val capsuleStyle = chrome.capsuleStyle
+    val titleColor = chrome.titleColor
     val cardColor = if (isActive && capsuleStyle != null) {
         capsuleStyle.chromeAccentColor.copy(alpha = 0.15f)
     } else if (isActive) {
@@ -53,7 +50,6 @@ fun TabCard(
     } else {
         MaterialTheme.colorScheme.surfaceVariant
     }
-    val titleColor = capsuleStyle?.chromeTextColor ?: MaterialTheme.colorScheme.onSurface
 
     Card(
         modifier = Modifier
