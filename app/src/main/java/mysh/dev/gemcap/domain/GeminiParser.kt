@@ -78,6 +78,10 @@ object GeminiParser {
                 line.startsWith("=>") -> {
                     val parts = line.removePrefix("=>").trim().split(Regex("\\s+"), 2)
                     val url = parts.getOrNull(0)?.trim().orEmpty()
+                    if (url.isBlank()) {
+                        content.add(GeminiContent.Text(id = idCounter++, text = line))
+                        continue
+                    }
                     val rawLinkText = parts.getOrNull(1)?.trim().orEmpty().ifEmpty { url }
                     val id = idCounter++
                     val resolvedUrl = resolveUrl(url, baseUrl)
@@ -278,10 +282,12 @@ object GeminiParser {
     private val imageExtensions = setOf(
         "gif", "jpg", "jpeg", "png", "tga", "psd", "hdr", "jxl", "webp", "pic"
     )
-    private val audioExtensions = setOf("mp3", "wav", "ogg", "opus", "mid") // also midi will NOT work
+    private val audioExtensions =
+        setOf("mp3", "wav", "ogg", "opus", "mid") // also midi will NOT work
 
     private fun extensionFlags(url: String, resolvedUrl: String?): Set<LinkFlag> {
-        val path = (resolvedUrl ?: url).substringBefore("?").substringBefore("#").lowercase(Locale.US)
+        val path =
+            (resolvedUrl ?: url).substringBefore("?").substringBefore("#").lowercase(Locale.US)
         if (path.isBlank()) return emptySet()
         val ext = path.substringAfterLast('.', "")
         if (ext.isEmpty()) return emptySet()
@@ -349,11 +355,11 @@ object GeminiParser {
 
     private fun customIconAllowedForScheme(scheme: LinkScheme, isRemote: Boolean): Boolean {
         return (scheme == LinkScheme.GEMINI && !isRemote) ||
-            scheme == LinkScheme.ABOUT ||
-            scheme == LinkScheme.FILE ||
-            scheme == LinkScheme.MAILTO ||
-            scheme == LinkScheme.MISFIN ||
-            scheme == LinkScheme.UNKNOWN
+                scheme == LinkScheme.ABOUT ||
+                scheme == LinkScheme.FILE ||
+                scheme == LinkScheme.MAILTO ||
+                scheme == LinkScheme.MISFIN ||
+                scheme == LinkScheme.UNKNOWN
     }
 
     private data class IconToken(
@@ -396,15 +402,15 @@ object GeminiParser {
             return false
         }
         return codePoint in 0x1F300..0x1FAFF ||
-            codePoint in 0x2600..0x27BF ||
-            isRegionalIndicatorLetter(codePoint) ||
-            codePoint == 0x2022 ||
-            codePoint == 0x2139 ||
-            (codePoint in 0x2190..0x21FF) ||
-            codePoint == 0x29BF ||
-            codePoint == 0x2A2F ||
-            (codePoint in 0x2B00..0x2BFF) ||
-            codePoint == 0x20BF ||
-            (codePoint in 0x1F191..0x1F19A)
+                codePoint in 0x2600..0x27BF ||
+                isRegionalIndicatorLetter(codePoint) ||
+                codePoint == 0x2022 ||
+                codePoint == 0x2139 ||
+                (codePoint in 0x2190..0x21FF) ||
+                codePoint == 0x29BF ||
+                codePoint == 0x2A2F ||
+                (codePoint in 0x2B00..0x2BFF) ||
+                codePoint == 0x20BF ||
+                (codePoint in 0x1F191..0x1F19A)
     }
 }
