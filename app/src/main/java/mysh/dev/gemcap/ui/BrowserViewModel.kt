@@ -56,6 +56,7 @@ import mysh.dev.gemcap.domain.StableByteArray
 import mysh.dev.gemcap.domain.TofuDomainMismatchState
 import mysh.dev.gemcap.domain.TofuWarningState
 import mysh.dev.gemcap.network.BackoffManager
+import mysh.dev.gemcap.network.DEFAULT_MAX_RESPONSE_BODY_BYTES
 import mysh.dev.gemcap.network.CertificateGenerator
 import mysh.dev.gemcap.network.GeminiClient
 import mysh.dev.gemcap.network.GeminiFetchResult
@@ -1250,7 +1251,22 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 if (!markedLoading) {
                     return@launch
                 }
-                when (val result = fetchEmbeddedMediaWithRedirects(resolvedUrl, certAlias)) {
+                when (val result = fetchEmbeddedMediaWithRedirects(
+                    initialUrl = resolvedUrl,
+                    certAlias = certAlias,
+                    onProgress = { bytesRead ->
+                        updateEmbeddedMedia(
+                            tab = tab,
+                            itemId = itemId,
+                            expectedDisplayedUrl = baseDisplayedUrl,
+                            expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
+                        ) { item ->
+                            item.copy(
+                                downloadProgress = bytesRead.toFloat() / DEFAULT_MAX_RESPONSE_BODY_BYTES.toFloat()
+                            )
+                        }
+                    }
+                )) {
                     is EmbeddedMediaFetchResult.Success -> {
                         val response = result.response
                         val mimeType = response.meta.lowercase().split(";").first().trim()
@@ -1412,13 +1428,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private suspend fun fetchEmbeddedMediaWithRedirects(
         initialUrl: String,
         certAlias: String?,
-        maxRedirects: Int = 5
+        maxRedirects: Int = 5,
+        onProgress: ((bytesRead: Int) -> Unit)? = null
     ): EmbeddedMediaFetchResult {
         val app = getApplication<Application>()
         return followRedirects(
             initialUrl = initialUrl,
             certAlias = certAlias,
             maxRedirects = maxRedirects,
+            onProgress = onProgress,
             mapResult = { result, currentUrl ->
                 when (result) {
                     is GeminiFetchResult.Success -> {
@@ -1522,6 +1540,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         initialUrl: String,
         certAlias: String?,
         maxRedirects: Int,
+        onProgress: ((bytesRead: Int) -> Unit)? = null,
         mapResult: (result: GeminiFetchResult, currentUrl: String) -> RedirectLoopResult<T>,
         onInvalidRedirect: (statusCode: Int, message: String) -> T,
         onTooManyRedirects: (redirectLimit: Int) -> T
@@ -1530,7 +1549,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         var redirectCount = 0
 
         while (redirectCount < maxRedirects) {
-            val fetchResult = client.fetch(currentUrl, certAlias)
+            val fetchResult = client.fetch(currentUrl, certAlias, onProgress)
             currentCoroutineContext().ensureActive()
 
             when (val mapped = mapResult(fetchResult, currentUrl)) {

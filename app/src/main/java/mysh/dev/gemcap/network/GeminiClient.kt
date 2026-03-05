@@ -33,7 +33,7 @@ private const val MAX_SSL_RETRIES = 3
 private const val CONNECT_TIMEOUT_MS = 10_000
 private const val READ_TIMEOUT_MS = 30_000
 private const val MAX_HEADER_BYTES = 1024
-private const val DEFAULT_MAX_RESPONSE_BODY_BYTES = 16 * 1024 * 1024
+internal const val DEFAULT_MAX_RESPONSE_BODY_BYTES = 16 * 1024 * 1024
 
 class UriTooLongException(length: Int) :
     Exception("URI exceeds maximum length of $MAX_URI_BYTES bytes (was $length)")
@@ -116,9 +116,13 @@ class GeminiClient(
      * @param url The URL to fetch
      * @param certAlias Optional client certificate alias to use for this request
      */
-    suspend fun fetch(url: String, certAlias: String? = null): GeminiFetchResult =
+    suspend fun fetch(
+        url: String,
+        certAlias: String? = null,
+        onProgress: ((bytesRead: Int) -> Unit)? = null
+    ): GeminiFetchResult =
         withContext(Dispatchers.IO) {
-            fetchWithRetry(url, certAlias)
+            fetchWithRetry(url, certAlias, onProgress)
         }
 
     /**
@@ -130,10 +134,14 @@ class GeminiClient(
      *
      * This is a stupid hack and should be removed if I ever understand the issue.
      */
-    private suspend fun fetchWithRetry(url: String, certAlias: String?): GeminiFetchResult {
+    private suspend fun fetchWithRetry(
+        url: String,
+        certAlias: String?,
+        onProgress: ((bytesRead: Int) -> Unit)? = null
+    ): GeminiFetchResult {
         var lastError: GeminiFetchResult.Error? = null
         for (attempt in 1..MAX_SSL_RETRIES) {
-            val result = fetchInternal(url, getSocketFactory(certAlias))
+            val result = fetchInternal(url, getSocketFactory(certAlias), onProgress)
             val sslException = (result as? GeminiFetchResult.Error)?.exception as? SSLException
             if (sslException == null || !isTransientSslException(sslException)) {
                 return result
@@ -155,7 +163,8 @@ class GeminiClient(
     @Suppress("TooGenericExceptionCaught")
     private suspend fun fetchInternal(
         url: String,
-        socketFactory: javax.net.ssl.SSLSocketFactory
+        socketFactory: javax.net.ssl.SSLSocketFactory,
+        onProgress: ((bytesRead: Int) -> Unit)? = null
     ): GeminiFetchResult {
         // Normalize and validate URL per Gemini spec
         val normalizedUrl = try {
@@ -289,7 +298,7 @@ class GeminiClient(
 
                 // Read response
                 val inputStream = sslSocket.inputStream
-                val response = parseResponse(inputStream)
+                val response = parseResponse(inputStream, onProgress)
                 Log.d(TAG, "Fetch response status=${response.status} meta='${response.meta}'")
 
                 // Handle client certificate required responses
@@ -368,7 +377,10 @@ class GeminiClient(
         tofuTrustManager.acceptNewCertificate(host, port, fingerprint, expiry)
     }
 
-    private fun parseResponse(inputStream: InputStream): GeminiResponse {
+    private fun parseResponse(
+        inputStream: InputStream,
+        onProgress: ((bytesRead: Int) -> Unit)? = null
+    ): GeminiResponse {
         val headerBuffer = ByteArrayOutputStream()
         var previous = -1
         var current: Int
@@ -402,13 +414,16 @@ class GeminiClient(
 
         var body: ByteArray? = null
         if (status in 20..29) {
-            body = readResponseBodyWithLimit(inputStream)
+            body = readResponseBodyWithLimit(inputStream, onProgress)
         }
 
         return GeminiResponse(status, meta, body)
     }
 
-    private fun readResponseBodyWithLimit(inputStream: InputStream): ByteArray {
+    private fun readResponseBodyWithLimit(
+        inputStream: InputStream,
+        onProgress: ((bytesRead: Int) -> Unit)? = null
+    ): ByteArray {
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
         val output = ByteArrayOutputStream()
         var totalBytes = 0
@@ -425,6 +440,7 @@ class GeminiClient(
                 )
             }
             output.write(buffer, 0, read)
+            onProgress?.invoke(totalBytes)
         }
         return output.toByteArray()
     }

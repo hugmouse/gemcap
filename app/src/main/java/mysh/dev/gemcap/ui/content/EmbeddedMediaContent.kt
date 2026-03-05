@@ -290,11 +290,21 @@ private fun LoadingMediaCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(20.dp),
-                strokeWidth = 2.dp,
-                color = styles.linkIconColor
-            )
+            val progress = item.downloadProgress
+            if (progress != null && progress > 0f) {
+                CircularProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = styles.linkIconColor
+                )
+            } else {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = styles.linkIconColor
+                )
+            }
             Text(
                 text = stringResource(R.string.embedded_media_loading, mediaLabel),
                 style = MaterialTheme.typography.bodyMedium,
