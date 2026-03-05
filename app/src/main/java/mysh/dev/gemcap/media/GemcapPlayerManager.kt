@@ -39,7 +39,7 @@ class GemcapPlayerManager(private val context: Context) {
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
 
-        val dataSourceFactory = ByteArrayDataSource.Factory(data, mimeType)
+        val dataSourceFactory = ByteArrayDataSource.Factory(data)
         val mediaItem = MediaItem.Builder()
             .setUri("gemini://local/media")
             .setMimeType(mimeType)

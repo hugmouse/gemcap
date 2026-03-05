@@ -1262,7 +1262,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                             expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
                         ) { item ->
                             item.copy(
-                                downloadProgress = bytesRead.toFloat() / DEFAULT_MAX_RESPONSE_BODY_BYTES.toFloat()
+                                // Logarithmic progress: grows quickly for small files, slows for larger ones
+                                // At 100KB: ~0.33, at 1MB: ~0.55, at 5MB: ~0.73, at 16MB: ~0.9
+                                downloadProgress = (kotlin.math.ln(1f + bytesRead.toFloat()) / kotlin.math.ln(1f + DEFAULT_MAX_RESPONSE_BODY_BYTES.toFloat())).coerceAtMost(0.95f)
                             )
                         }
                     }

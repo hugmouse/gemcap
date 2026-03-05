@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -54,9 +55,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.annotation.OptIn
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.ui.compose.PlayerSurface
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.compose.ContentFrame
 import androidx.media3.ui.compose.SURFACE_TYPE_SURFACE_VIEW
 import androidx.media3.ui.compose.material3.buttons.PlayPauseButton
 import androidx.media3.ui.compose.material3.buttons.SeekBackButton
@@ -473,7 +479,7 @@ private fun LoadedAudioMediaCard(
     DisposableEffect(item.id, audioData) {
         playerManager.play(audioData.bytes, item.mimeType)
         onDispose {
-            playerManager.release()
+            playerManager.player?.stop()
         }
     }
 
@@ -597,7 +603,7 @@ private fun LoadedAudioMediaCard(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, UnstableApi::class)
 @Composable
 private fun LoadedVideoMediaCard(
     item: GeminiContent.EmbeddedMedia,
@@ -618,7 +624,7 @@ private fun LoadedVideoMediaCard(
     DisposableEffect(item.id, videoData) {
         playerManager.play(videoData.bytes, item.mimeType)
         onDispose {
-            playerManager.release()
+            playerManager.player?.stop()
         }
     }
 
@@ -641,6 +647,20 @@ private fun LoadedVideoMediaCard(
         }
     }
 
+    // Pause video when app goes to background (audio should continue)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                playerManager.player?.pause()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     Box {
         Column(
             modifier = Modifier
@@ -658,21 +678,20 @@ private fun LoadedVideoMediaCard(
                 ),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
-            // Video surface with 16:9 aspect ratio
+            // Video surface — ContentFrame handles aspect ratio automatically
             if (player != null) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(16f / 9f)
                         .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
-                        .background(MaterialTheme.colorScheme.scrim)
+                        .background(MaterialTheme.colorScheme.scrim),
+                    contentAlignment = Alignment.Center
                 ) {
-                    PlayerSurface(
+                    ContentFrame(
                         player = player,
                         surfaceType = SURFACE_TYPE_SURFACE_VIEW,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(16f / 9f)
+                        modifier = Modifier.fillMaxSize()
                     )
                 }
             } else {

@@ -30,17 +30,22 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.annotation.OptIn
 import androidx.media3.common.Player
-import androidx.media3.ui.compose.PlayerSurface
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.compose.ContentFrame
 import androidx.media3.ui.compose.SURFACE_TYPE_SURFACE_VIEW
 import androidx.media3.ui.compose.material3.buttons.PlayPauseButton
 import androidx.media3.ui.compose.material3.buttons.SeekBackButton
 import androidx.media3.ui.compose.material3.buttons.SeekForwardButton
-import androidx.media3.ui.compose.material3.indicator.PositionAndDurationText
+import androidx.media3.ui.compose.indicators.TimeText
+import androidx.media3.common.util.Util
+import androidx.compose.material3.Text
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import mysh.dev.gemcap.R
 
+@OptIn(UnstableApi::class)
 @Composable
 fun FullscreenVideoDialog(
     player: Player,
@@ -61,8 +66,8 @@ fun FullscreenVideoDialog(
                 .background(Color.Black)
                 .systemBarsPadding()
         ) {
-            // Video surface
-            PlayerSurface(
+            // Video surface — ContentFrame handles aspect ratio automatically
+            ContentFrame(
                 player = player,
                 surfaceType = SURFACE_TYPE_SURFACE_VIEW,
                 modifier = Modifier.fillMaxSize()
@@ -119,10 +124,18 @@ fun FullscreenVideoDialog(
                         modifier = Modifier.size(40.dp),
                         tint = Color.White
                     )
-                    PositionAndDurationText(
-                        player,
-                        modifier = Modifier.weight(1f),
-                    )
+                    Box(modifier = Modifier.weight(1f)) {
+                        TimeText(player) {
+                            val position = Util.getStringForTime(this.currentPositionMs)
+                            val duration = Util.getStringForTime(this.durationMs)
+                            Text(
+                                text = "$position / $duration",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = Color.White
+                                )
+                            )
+                        }
+                    }
                 }
             }
         }

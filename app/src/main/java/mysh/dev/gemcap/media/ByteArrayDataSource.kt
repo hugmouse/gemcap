@@ -11,8 +11,7 @@ import kotlin.math.min
 
 @OptIn(UnstableApi::class)
 class ByteArrayDataSource(
-    private val data: ByteArray,
-    private val mimeType: String
+    private val data: ByteArray
 ) : BaseDataSource(/* isNetwork= */ false) {
 
     private var uri: Uri? = null
@@ -50,11 +49,10 @@ class ByteArrayDataSource(
     }
 
     class Factory(
-        private val data: ByteArray,
-        private val mimeType: String
+        private val data: ByteArray
     ) : DataSource.Factory {
         override fun createDataSource(): ByteArrayDataSource {
-            return ByteArrayDataSource(data, mimeType)
+            return ByteArrayDataSource(data)
         }
     }
 }
