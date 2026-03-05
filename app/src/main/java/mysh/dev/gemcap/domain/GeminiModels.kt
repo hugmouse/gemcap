@@ -113,6 +113,7 @@ sealed class GeminiContent {
         val linkText: String,
         val state: EmbeddedMediaState,
         val data: StableByteArray? = null,  // Populated when state is LOADED
+        val dataFilePath: String? = null,   // Path to temp file for large media (audio/video)
         val errorMessage: String? = null,
         val downloadProgress: Float? = null  // 0.0 to 1.0, null if unknown
     ) : GeminiContent()

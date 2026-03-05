@@ -383,6 +383,14 @@ private fun LoadedMediaCard(
     )
 }
 
+private fun formatBytesLong(size: Long): String {
+    return when {
+        size < 1024L -> "${size}B"
+        size < 1024L * 1024L -> String.format(Locale.US, "%.1fKB", size / 1024.0)
+        else -> String.format(Locale.US, "%.1fMB", size / (1024.0 * 1024.0))
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun LoadedInlineImage(
@@ -476,14 +484,24 @@ private fun LoadedAudioMediaCard(
     val name = item.linkText.takeIf { it.isNotBlank() }
         ?: item.url.substringAfterLast("/").ifEmpty { audioLabel }
 
-    DisposableEffect(item.id, audioData) {
-        playerManager.play(audioData.bytes, item.mimeType)
+    DisposableEffect(item.id) {
+        val filePath = item.dataFilePath
+        if (filePath != null) {
+            playerManager.playFromFile(java.io.File(filePath), item.mimeType)
+        } else {
+            playerManager.play(audioData.bytes, item.mimeType)
+        }
         onDispose {
             playerManager.player?.stop()
         }
     }
 
     val player = playerManager.player
+    val sizeText = if (item.dataFilePath != null) {
+        formatBytesLong(java.io.File(item.dataFilePath).length())
+    } else {
+        formatBytes(audioData.bytes.size)
+    }
 
     // Listen for playback errors
     DisposableEffect(player) {
@@ -540,7 +558,7 @@ private fun LoadedAudioMediaCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "${item.mimeType} - ${formatBytes(audioData.bytes.size)}",
+                        text = "${item.mimeType} - $sizeText",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -621,14 +639,24 @@ private fun LoadedVideoMediaCard(
     val name = item.linkText.takeIf { it.isNotBlank() }
         ?: item.url.substringAfterLast("/").ifEmpty { videoLabel }
 
-    DisposableEffect(item.id, videoData) {
-        playerManager.play(videoData.bytes, item.mimeType)
+    DisposableEffect(item.id) {
+        val filePath = item.dataFilePath
+        if (filePath != null) {
+            playerManager.playFromFile(java.io.File(filePath), item.mimeType)
+        } else {
+            playerManager.play(videoData.bytes, item.mimeType)
+        }
         onDispose {
             playerManager.player?.stop()
         }
     }
 
     val player = playerManager.player
+    val sizeText = if (item.dataFilePath != null) {
+        formatBytesLong(java.io.File(item.dataFilePath).length())
+    } else {
+        formatBytes(videoData.bytes.size)
+    }
 
     // Listen for playback errors
     DisposableEffect(player) {
@@ -725,7 +753,7 @@ private fun LoadedVideoMediaCard(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "${item.mimeType} - ${formatBytes(videoData.bytes.size)}",
+                            text = "${item.mimeType} - $sizeText",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

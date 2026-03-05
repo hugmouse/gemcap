@@ -51,6 +51,21 @@ class GemcapPlayerManager(private val context: Context) {
         exoPlayer.playWhenReady = true
     }
 
+    @OptIn(UnstableApi::class)
+    fun playFromFile(file: java.io.File, mimeType: String) {
+        val exoPlayer = getOrCreatePlayer()
+        exoPlayer.stop()
+        exoPlayer.clearMediaItems()
+
+        val mediaItem = MediaItem.Builder()
+            .setUri(android.net.Uri.fromFile(file))
+            .setMimeType(mimeType)
+            .build()
+        exoPlayer.setMediaItem(mediaItem)
+        exoPlayer.prepare()
+        exoPlayer.playWhenReady = true
+    }
+
     fun release() {
         mediaSession?.release()
         mediaSession = null
