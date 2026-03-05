@@ -1,9 +1,6 @@
 package mysh.dev.gemcap.ui.content
 
 import android.graphics.BitmapFactory
-import android.media.AudioAttributes
-import android.media.MediaDataSource
-import android.media.MediaPlayer
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -13,34 +10,38 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.Stable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,24 +54,35 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.text.selection.DisableSelection
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.ui.compose.PlayerSurface
+import androidx.media3.ui.compose.SURFACE_TYPE_SURFACE_VIEW
+import androidx.media3.ui.compose.material3.buttons.PlayPauseButton
+import androidx.media3.ui.compose.material3.buttons.SeekBackButton
+import androidx.media3.ui.compose.material3.buttons.SeekForwardButton
+import androidx.media3.ui.compose.material3.indicator.PositionAndDurationText
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import mysh.dev.gemcap.R
 import mysh.dev.gemcap.domain.GeminiContent
 import mysh.dev.gemcap.domain.StableByteArray
+import mysh.dev.gemcap.media.GemcapPlayerManager
 import java.util.Locale
-import kotlin.math.min
 
 @Composable
 fun EmbeddedMediaContent(
     item: GeminiContent.EmbeddedMedia,
     styles: CachedTextStyles,
+    playerManager: GemcapPlayerManager,
     onLoadMedia: (Int) -> Unit,
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
-    onDownloadMedia: (String, StableByteArray, String) -> Unit
+    onDownloadMedia: (String, StableByteArray, String) -> Unit,
+    onFullscreen: (Player) -> Unit
 ) {
     when (item.state) {
         GeminiContent.EmbeddedMediaState.COLLAPSED -> {
@@ -90,10 +102,12 @@ fun EmbeddedMediaContent(
         GeminiContent.EmbeddedMediaState.LOADED -> {
             LoadedMediaCard(
                 item = item,
+                playerManager = playerManager,
                 onCollapseMedia = onCollapseMedia,
                 onOpenInNewTab = onOpenInNewTab,
                 onCopyLink = onCopyLink,
-                onDownloadMedia = onDownloadMedia
+                onDownloadMedia = onDownloadMedia,
+                onFullscreen = onFullscreen
             )
         }
 
@@ -293,10 +307,12 @@ private fun LoadingMediaCard(
 @Composable
 private fun LoadedMediaCard(
     item: GeminiContent.EmbeddedMedia,
+    playerManager: GemcapPlayerManager,
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
-    onDownloadMedia: (String, StableByteArray, String) -> Unit
+    onDownloadMedia: (String, StableByteArray, String) -> Unit,
+    onFullscreen: (Player) -> Unit
 ) {
     val mediaType = getMediaType(item.mimeType)
     val data = item.data ?: StableByteArray(ByteArray(0))
@@ -317,10 +333,25 @@ private fun LoadedMediaCard(
         LoadedAudioMediaCard(
             item = item,
             audioData = data,
+            playerManager = playerManager,
             onCollapseMedia = onCollapseMedia,
             onOpenInNewTab = onOpenInNewTab,
             onCopyLink = onCopyLink,
             onDownloadMedia = onDownloadMedia
+        )
+        return
+    }
+
+    if (mediaType == MediaType.VIDEO) {
+        LoadedVideoMediaCard(
+            item = item,
+            videoData = data,
+            playerManager = playerManager,
+            onCollapseMedia = onCollapseMedia,
+            onOpenInNewTab = onOpenInNewTab,
+            onCopyLink = onCopyLink,
+            onDownloadMedia = onDownloadMedia,
+            onFullscreen = onFullscreen
         )
         return
     }
@@ -412,234 +443,51 @@ private fun LoadedInlineImage(
     }
 }
 
-@Composable
-private fun rememberAudioPlayerState(
-    itemId: Int,
-    audioData: StableByteArray,
-    unableToStartMessage: String,
-    playbackErrorMessage: String,
-    unableToPlayFileMessage: String,
-    unableToPauseMessage: String,
-    unableToRestartMessage: String,
-    onPrepared: () -> Unit = {},
-    onCompletion: () -> Unit = {},
-    onError: (String) -> Unit = {}
-): AudioPlayerState {
-    return remember(itemId, audioData) {
-        AudioPlayerState(
-            audioData = audioData,
-            unableToStartMessage = unableToStartMessage,
-            playbackErrorMessage = playbackErrorMessage,
-            unableToPlayFileMessage = unableToPlayFileMessage,
-            unableToPauseMessage = unableToPauseMessage,
-            unableToRestartMessage = unableToRestartMessage,
-            onPrepared = onPrepared,
-            onCompletion = onCompletion,
-            onError = onError
-        )
-    }
-}
-
-@Stable
-private class AudioPlayerState(
-    private val audioData: StableByteArray,
-    private val unableToStartMessage: String,
-    private val playbackErrorMessage: String,
-    private val unableToPlayFileMessage: String,
-    private val unableToPauseMessage: String,
-    private val unableToRestartMessage: String,
-    private val onPrepared: () -> Unit,
-    private val onCompletion: () -> Unit,
-    private val onError: (String) -> Unit
-) {
-    var mediaPlayer by mutableStateOf<MediaPlayer?>(null)
-        private set
-    var isPreparing by mutableStateOf(false)
-        private set
-    var isPlaying by mutableStateOf(false)
-        private set
-    val isPaused: Boolean get() = mediaPlayer != null && !isPlaying
-    var playbackError by mutableStateOf<String?>(null)
-        private set
-
-    fun release() {
-        val player = mediaPlayer ?: return
-        runCatching {
-            player.setOnPreparedListener(null)
-            player.setOnCompletionListener(null)
-            player.setOnErrorListener(null)
-            player.release()
-        }
-        mediaPlayer = null
-        isPreparing = false
-        isPlaying = false
-    }
-
-    fun prepareAndStartPlayer() {
-        release()
-        playbackError = null
-        val player = MediaPlayer()
-        try {
-            player.setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .build()
-            )
-            player.setOnPreparedListener { preparedPlayer ->
-                isPreparing = false
-                playbackError = null
-                onPrepared()
-                runCatching { preparedPlayer.start() }
-                    .onSuccess { isPlaying = true }
-                    .onFailure { error ->
-                        isPlaying = false
-                        val message = error.message ?: unableToStartMessage
-                        playbackError = message
-                        onError(message)
-                    }
-            }
-            player.setOnCompletionListener { completedPlayer ->
-                isPlaying = false
-                onCompletion()
-                runCatching { completedPlayer.seekTo(0) }
-            }
-            player.setOnErrorListener { failedPlayer, _, _ ->
-                runCatching { failedPlayer.release() }
-                mediaPlayer = null
-                isPreparing = false
-                isPlaying = false
-                playbackError = playbackErrorMessage
-                onError(playbackErrorMessage)
-                true
-            }
-            player.setDataSource(ByteArrayMediaDataSource(audioData.bytes))
-            mediaPlayer = player
-            isPreparing = true
-            player.prepareAsync()
-        } catch (error: Exception) {
-            runCatching { player.release() }
-            mediaPlayer = null
-            isPreparing = false
-            isPlaying = false
-            val message = error.message ?: unableToPlayFileMessage
-            playbackError = message
-            onError(message)
-        }
-    }
-
-    fun start() {
-        if (isPreparing) return
-
-        val player = mediaPlayer
-        if (player == null) {
-            prepareAndStartPlayer()
-            return
-        }
-
-        runCatching { player.start() }
-            .onSuccess {
-                isPlaying = true
-                playbackError = null
-            }
-            .onFailure {
-                prepareAndStartPlayer()
-            }
-    }
-
-    fun stop() {
-        if (isPreparing) return
-
-        val player = mediaPlayer ?: return
-        runCatching { player.pause() }
-            .onSuccess {
-                isPlaying = false
-                playbackError = null
-            }
-            .onFailure { error ->
-                val message = error.message ?: unableToPauseMessage
-                playbackError = message
-                onError(message)
-            }
-    }
-
-    fun togglePlayback() {
-        if (isPlaying) {
-            stop()
-        } else {
-            start()
-        }
-    }
-
-    fun restartPlayback() {
-        if (isPreparing) return
-
-        val player = mediaPlayer
-        if (player == null) {
-            prepareAndStartPlayer()
-            return
-        }
-
-        runCatching {
-            player.seekTo(0)
-            player.start()
-            isPlaying = true
-            playbackError = null
-        }.onFailure { error ->
-            val message = error.message ?: unableToRestartMessage
-            playbackError = message
-            onError(message)
-        }
-    }
-}
-
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun LoadedAudioMediaCard(
     item: GeminiContent.EmbeddedMedia,
     audioData: StableByteArray,
+    playerManager: GemcapPlayerManager,
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
     onDownloadMedia: (String, StableByteArray, String) -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    var playbackError by remember { mutableStateOf<String?>(null) }
     val audioLabel = mediaTypeLabel(MediaType.AUDIO)
-    val playContentDescription = stringResource(R.string.embedded_media_play)
-    val pauseContentDescription = stringResource(R.string.embedded_media_pause)
-    val restartContentDescription = stringResource(R.string.embedded_media_restart)
-    val preparingAudioText = stringResource(R.string.embedded_media_status_preparing_audio)
-    val playingText = stringResource(R.string.embedded_media_status_playing)
-    val pausedText = stringResource(R.string.embedded_media_status_paused)
-    val readyToPlayText = stringResource(R.string.embedded_media_status_ready)
-    val audioPlayerState = rememberAudioPlayerState(
-        itemId = item.id,
-        audioData = audioData,
-        unableToStartMessage = stringResource(R.string.embedded_media_error_unable_start_audio),
-        playbackErrorMessage = stringResource(R.string.embedded_media_error_playback),
-        unableToPlayFileMessage = stringResource(R.string.embedded_media_error_unable_play_file),
-        unableToPauseMessage = stringResource(R.string.embedded_media_error_unable_pause_audio),
-        unableToRestartMessage = stringResource(R.string.embedded_media_error_unable_restart_audio)
-    )
     val name = item.linkText.takeIf { it.isNotBlank() }
         ?: item.url.substringAfterLast("/").ifEmpty { audioLabel }
 
-    DisposableEffect(item.id, item.data) {
+    DisposableEffect(item.id, audioData) {
+        playerManager.play(audioData.bytes, item.mimeType)
         onDispose {
-            audioPlayerState.release()
+            playerManager.release()
         }
     }
 
-    val statusText = when {
-        audioPlayerState.playbackError != null -> audioPlayerState.playbackError!!
-        audioPlayerState.isPreparing -> preparingAudioText
-        audioPlayerState.isPlaying -> playingText
-        audioPlayerState.isPaused -> pausedText
-        else -> readyToPlayText
+    val player = playerManager.player
+
+    // Listen for playback errors
+    DisposableEffect(player) {
+        val listener = if (player != null) {
+            object : Player.Listener {
+                override fun onPlayerError(error: PlaybackException) {
+                    playbackError = error.localizedMessage ?: error.errorCodeName
+                }
+            }.also { player.addListener(it) }
+        } else null
+
+        onDispose {
+            if (player != null && listener != null) {
+                player.removeListener(listener)
+            }
+        }
     }
 
     Box {
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
@@ -650,11 +498,13 @@ private fun LoadedAudioMediaCard(
                     shape = RoundedCornerShape(8.dp)
                 )
                 .combinedClickable(
-                    onClick = { audioPlayerState.togglePlayback() },
+                    onClick = { },
                     onLongClick = { showMenu = true }
                 )
-                .padding(16.dp)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // File info row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -678,48 +528,42 @@ private fun LoadedAudioMediaCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Text(
-                        text = statusText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (audioPlayerState.playbackError != null) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
                 }
+            }
 
+            // Media3 controls
+            if (player != null) {
+                // Progress slider
+                PlayerProgressSlider(
+                    player = player,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Controls row: seek back, play/pause, seek forward, position/duration
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    IconButton(
-                        onClick = { audioPlayerState.togglePlayback() },
-                        enabled = !audioPlayerState.isPreparing
-                    ) {
-                        Icon(
-                            imageVector = if (audioPlayerState.isPlaying) {
-                                Icons.Default.Pause
-                            } else {
-                                Icons.Default.PlayArrow
-                            },
-                            contentDescription = if (audioPlayerState.isPlaying) {
-                                pauseContentDescription
-                            } else {
-                                playContentDescription
-                            }
-                        )
-                    }
-                    IconButton(
-                        onClick = { audioPlayerState.restartPlayback() },
-                        enabled = !audioPlayerState.isPreparing
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Replay,
-                            contentDescription = restartContentDescription
-                        )
-                    }
+                    SeekBackButton(player, modifier = Modifier.size(36.dp))
+                    PlayPauseButton(player, modifier = Modifier.size(40.dp))
+                    SeekForwardButton(player, modifier = Modifier.size(36.dp))
+                    PositionAndDurationText(
+                        player,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
+            } else {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+
+            // Error display
+            playbackError?.let { error ->
+                Text(
+                    text = stringResource(R.string.embedded_media_playback_error, error),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
             }
         }
 
@@ -741,6 +585,226 @@ private fun LoadedAudioMediaCard(
             }
         )
     }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun LoadedVideoMediaCard(
+    item: GeminiContent.EmbeddedMedia,
+    videoData: StableByteArray,
+    playerManager: GemcapPlayerManager,
+    onCollapseMedia: (Int) -> Unit,
+    onOpenInNewTab: (String) -> Unit,
+    onCopyLink: (String) -> Unit,
+    onDownloadMedia: (String, StableByteArray, String) -> Unit,
+    onFullscreen: (Player) -> Unit
+) {
+    var showMenu by remember { mutableStateOf(false) }
+    var playbackError by remember { mutableStateOf<String?>(null) }
+    val videoLabel = mediaTypeLabel(MediaType.VIDEO)
+    val name = item.linkText.takeIf { it.isNotBlank() }
+        ?: item.url.substringAfterLast("/").ifEmpty { videoLabel }
+
+    DisposableEffect(item.id, videoData) {
+        playerManager.play(videoData.bytes, item.mimeType)
+        onDispose {
+            playerManager.release()
+        }
+    }
+
+    val player = playerManager.player
+
+    // Listen for playback errors
+    DisposableEffect(player) {
+        val listener = if (player != null) {
+            object : Player.Listener {
+                override fun onPlayerError(error: PlaybackException) {
+                    playbackError = error.localizedMessage ?: error.errorCodeName
+                }
+            }.also { player.addListener(it) }
+        } else null
+
+        onDispose {
+            if (player != null && listener != null) {
+                player.removeListener(listener)
+            }
+        }
+    }
+
+    Box {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(8.dp)
+                )
+                .combinedClickable(
+                    onClick = { },
+                    onLongClick = { showMenu = true }
+                ),
+            verticalArrangement = Arrangement.spacedBy(0.dp)
+        ) {
+            // Video surface with 16:9 aspect ratio
+            if (player != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                        .background(MaterialTheme.colorScheme.scrim)
+                ) {
+                    PlayerSurface(
+                        player = player,
+                        surfaceType = SURFACE_TYPE_SURFACE_VIEW,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(16f / 9f)
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .background(MaterialTheme.colorScheme.scrim),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.onSurface)
+                }
+            }
+
+            // Info and controls below video
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // File info
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "${item.mimeType} - ${formatBytes(videoData.bytes.size)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    // Fullscreen button
+                    if (player != null) {
+                        IconButton(onClick = { onFullscreen(player) }) {
+                            Icon(
+                                imageVector = Icons.Default.Fullscreen,
+                                contentDescription = stringResource(R.string.embedded_media_fullscreen),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                // Controls
+                if (player != null) {
+                    PlayerProgressSlider(
+                        player = player,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        PlayPauseButton(player, modifier = Modifier.size(40.dp))
+                        PositionAndDurationText(
+                            player,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+
+                // Error display
+                playbackError?.let { error ->
+                    Text(
+                        text = stringResource(R.string.embedded_media_playback_error, error),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        }
+
+        MediaContextMenu(
+            expanded = showMenu,
+            onDismiss = { showMenu = false },
+            url = item.url,
+            onOpenInNewTab = onOpenInNewTab,
+            onCopyLink = onCopyLink,
+            onDownload = { onDownloadMedia(item.url, videoData, item.mimeType) },
+            extraItems = {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.embedded_media_hide_video)) },
+                    onClick = {
+                        showMenu = false
+                        onCollapseMedia(item.id)
+                    }
+                )
+            }
+        )
+    }
+}
+
+/**
+ * A progress slider that tracks and allows seeking of the player's current position.
+ * Built using a standard Material3 Slider since media3-ui-compose-material3 1.9.2 does not
+ * include a dedicated progress slider composable.
+ */
+@Composable
+private fun PlayerProgressSlider(
+    player: Player,
+    modifier: Modifier = Modifier
+) {
+    var sliderPosition by remember { mutableFloatStateOf(0f) }
+    var isSeeking by remember { mutableStateOf(false) }
+
+    // Periodically update position while not seeking
+    LaunchedEffect(player) {
+        while (isActive) {
+            if (!isSeeking) {
+                val duration = player.duration.coerceAtLeast(1L)
+                val position = player.currentPosition
+                sliderPosition = (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+            }
+            delay(200L)
+        }
+    }
+
+    Slider(
+        value = sliderPosition,
+        onValueChange = { value ->
+            isSeeking = true
+            sliderPosition = value
+        },
+        onValueChangeFinished = {
+            val duration = player.duration
+            if (duration > 0) {
+                player.seekTo((sliderPosition * duration).toLong())
+            }
+            isSeeking = false
+        },
+        modifier = modifier.height(24.dp)
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -953,18 +1017,4 @@ private fun formatBytes(size: Int): String {
         size < 1024 * 1024 -> String.format(Locale.US, "%.1fKB", size / 1024.0)
         else -> String.format(Locale.US, "%.1fMB", size / (1024.0 * 1024.0))
     }
-}
-
-private class ByteArrayMediaDataSource(private val data: ByteArray) : MediaDataSource() {
-    override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
-        if (position < 0L || position >= data.size) return -1
-        val start = position.toInt()
-        val length = min(size, data.size - start)
-        System.arraycopy(data, start, buffer, offset, length)
-        return length
-    }
-
-    override fun getSize(): Long = data.size.toLong()
-
-    override fun close() = Unit
 }
