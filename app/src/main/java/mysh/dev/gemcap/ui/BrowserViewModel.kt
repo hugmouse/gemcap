@@ -28,6 +28,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import mysh.dev.gemcap.data.BrowserRepository
 import mysh.dev.gemcap.data.ClientCertRepository
+import mysh.dev.gemcap.media.GemcapPlayerManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -102,6 +103,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         maxBytes = EMBEDDED_MEDIA_CACHE_MAX_BYTES,
         ttlMillis = EMBEDDED_MEDIA_CACHE_TTL_MILLIS
     )
+    val playerManager = GemcapPlayerManager(application)
 
     // Track loading jobs per tab for cancellation
     private val loadingJobs = mutableMapOf<String, Job>()
@@ -251,6 +253,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             reloadRestoredTabs()
         }
     }
+
+    override fun onCleared() {
+        super.onCleared()
+        playerManager.release()
+    }
+
     private fun reloadRestoredTabs() {
         // Only load the active tab immediately; other tabs load on first selection
         activeTabId ?: return
@@ -1289,6 +1297,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun collapseEmbeddedMedia(itemId: Int) {
+        playerManager.release()
         val tab = activeTab ?: return
         cancelEmbeddedMediaLoadingJob(tab.id, itemId)
         updateEmbeddedMedia(tab, itemId) { item ->

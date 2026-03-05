@@ -83,8 +83,11 @@ import mysh.dev.gemcap.ui.callbacks.BrowserCallbacksImpl
 import mysh.dev.gemcap.ui.components.ControlBar
 import mysh.dev.gemcap.ui.components.DialogOrchestrator
 import mysh.dev.gemcap.ui.components.TopTabStrip
+import androidx.media3.common.Player
+import mysh.dev.gemcap.media.GemcapPlayerManager
 import mysh.dev.gemcap.ui.content.ContentActions
 import mysh.dev.gemcap.ui.content.ContentItem
+import mysh.dev.gemcap.ui.content.FullscreenVideoDialog
 import mysh.dev.gemcap.ui.content.rememberCachedTextStyles
 import mysh.dev.gemcap.ui.model.ContentUiState
 import mysh.dev.gemcap.ui.model.AddressBarState
@@ -223,7 +226,8 @@ fun BrowserScreen(
         },
         onDismissTabSwitcher = { showTabSwitcher = false },
         snackbarHostState = snackbarHostState,
-        callbacks = callbacks
+        callbacks = callbacks,
+        playerManager = viewModel.playerManager
     )
 }
 
@@ -239,10 +243,12 @@ private fun BrowserScaffold(
     onShowTabSwitcher: () -> Unit,
     onDismissTabSwitcher: () -> Unit,
     snackbarHostState: SnackbarHostState,
-    callbacks: BrowserCallbacks
+    callbacks: BrowserCallbacks,
+    playerManager: GemcapPlayerManager
 ) {
     logRecomposition { ">>> BrowserScaffold" }
 
+    var fullscreenPlayer by remember { mutableStateOf<Player?>(null) }
     val activeTab = contentState.activeTab
     val panelState = dialogsState.panelState
     val homePageUrl = normalizeHomeUrl(
@@ -288,7 +294,9 @@ private fun BrowserScaffold(
                 activeTab = activeTab,
                 contentPadding = innerPadding,
                 searchState = contentState.searchState,
-                callbacks = callbacks
+                callbacks = callbacks,
+                playerManager = playerManager,
+                onFullscreen = { player -> fullscreenPlayer = player }
             )
         }
     }
@@ -314,6 +322,13 @@ private fun BrowserScaffold(
         currentPageUrl = activeTab?.url ?: "",
         callbacks = callbacks
     )
+
+    fullscreenPlayer?.let { player ->
+        FullscreenVideoDialog(
+            player = player,
+            onDismiss = { fullscreenPlayer = null }
+        )
+    }
 }
 
 private fun normalizeHomeUrl(rawUrl: String, searchEngine: SearchEngine): String {
@@ -416,7 +431,9 @@ private fun BrowserContent(
     activeTab: TabState?,
     contentPadding: PaddingValues,
     searchState: SearchState,
-    callbacks: BrowserCallbacks
+    callbacks: BrowserCallbacks,
+    playerManager: GemcapPlayerManager,
+    onFullscreen: (Player) -> Unit
 ) {
     logRecomposition {
         ">>> BrowserContent (isLoading=${activeTab?.isLoading}, hasError=${activeTab?.error != null})"
@@ -462,7 +479,9 @@ private fun BrowserContent(
                     content = activeTab.content,
                     isLoading = activeTab.isLoading,
                     searchState = searchState,
-                    callbacks = callbacks
+                    callbacks = callbacks,
+                    playerManager = playerManager,
+                    onFullscreen = onFullscreen
                 )
             }
         }
@@ -530,7 +549,9 @@ private fun GeminiContentList(
     content: ImmutableList<GeminiContent>,
     isLoading: Boolean,
     searchState: SearchState,
-    callbacks: BrowserCallbacks
+    callbacks: BrowserCallbacks,
+    playerManager: GemcapPlayerManager,
+    onFullscreen: (Player) -> Unit
 ) {
     logRecomposition { ">>> GeminiContentList (${content.size} items)" }
 
@@ -570,7 +591,7 @@ private fun GeminiContentList(
         }
     }
 
-    val contentActions = remember(callbacks) {
+    val contentActions = remember(callbacks, playerManager) {
         ContentActions(
             onLinkClick = callbacks::onLinkClick,
             onOpenImageInNewTab = callbacks::onOpenImageInNewTab,
@@ -578,7 +599,9 @@ private fun GeminiContentList(
             onOpenInNewTab = callbacks::onOpenInNewTab,
             onLoadEmbeddedMedia = callbacks::onLoadEmbeddedMedia,
             onCollapseEmbeddedMedia = callbacks::onCollapseEmbeddedMedia,
-            onDownloadEmbeddedMedia = callbacks::onDownloadEmbeddedMedia
+            onDownloadEmbeddedMedia = callbacks::onDownloadEmbeddedMedia,
+            playerManager = playerManager,
+            onFullscreen = onFullscreen
         )
     }
 

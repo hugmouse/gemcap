@@ -2,8 +2,10 @@ package mysh.dev.gemcap.ui.content
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
+import androidx.media3.common.Player
 import mysh.dev.gemcap.domain.GeminiContent
 import mysh.dev.gemcap.domain.StableByteArray
+import mysh.dev.gemcap.media.GemcapPlayerManager
 
 @Stable
 class ContentActions(
@@ -13,7 +15,9 @@ class ContentActions(
     val onOpenInNewTab: (String) -> Unit,
     val onLoadEmbeddedMedia: (Int) -> Unit,
     val onCollapseEmbeddedMedia: (Int) -> Unit,
-    val onDownloadEmbeddedMedia: (String, StableByteArray, String) -> Unit
+    val onDownloadEmbeddedMedia: (String, StableByteArray, String) -> Unit,
+    val playerManager: GemcapPlayerManager,
+    val onFullscreen: (Player) -> Unit
 )
 
 /**
@@ -46,11 +50,13 @@ fun ContentItem(
         is GeminiContent.EmbeddedMedia -> EmbeddedMediaContent(
             item = item,
             styles = styles,
+            playerManager = actions.playerManager,
             onLoadMedia = actions.onLoadEmbeddedMedia,
             onCollapseMedia = actions.onCollapseEmbeddedMedia,
             onOpenInNewTab = actions.onOpenInNewTab,
             onCopyLink = actions.onCopyLink,
-            onDownloadMedia = actions.onDownloadEmbeddedMedia
+            onDownloadMedia = actions.onDownloadEmbeddedMedia,
+            onFullscreen = actions.onFullscreen
         )
     }
 }
