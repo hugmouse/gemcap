@@ -317,7 +317,7 @@ private fun LoadingMediaCard(
                 )
             }
             val loadingText = if (progress != null && progress.bytesRead > 0L) {
-                stringResource(R.string.embedded_media_loading_with_size, mediaLabel, formatBytesLong(progress.bytesRead))
+                stringResource(R.string.embedded_media_loading_with_size, mediaLabel, formatBytes(progress.bytesRead))
             } else {
                 stringResource(R.string.embedded_media_loading, mediaLabel)
             }
@@ -397,7 +397,7 @@ private fun LoadedMediaCard(
     )
 }
 
-private fun formatBytesLong(size: Long): String {
+private fun formatBytes(size: Long): String {
     return when {
         size < 1024L -> "${size}B"
         size < 1024L * 1024L -> String.format(Locale.US, "%.1fKB", size / 1024.0)
@@ -503,9 +503,9 @@ private fun LoadedAudioMediaCard(
     val player = if (isActiveItem) playerManager.player else null
 
     val sizeText = if (item.dataFilePath != null) {
-        formatBytesLong(java.io.File(item.dataFilePath).length())
+        formatBytes(java.io.File(item.dataFilePath).length())
     } else {
-        formatBytes(item.data?.bytes?.size ?: 0)
+        formatBytes((item.data?.bytes?.size ?: 0).toLong())
     }
 
     // Reset playback error when this item becomes active again
@@ -515,17 +515,18 @@ private fun LoadedAudioMediaCard(
 
     // Listen for playback errors only when this is the active item
     DisposableEffect(player) {
-        val listener = if (player != null) {
+        val capturedPlayer = player
+        val listener = if (capturedPlayer != null) {
             object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
                     playbackError = error.localizedMessage ?: error.errorCodeName
                 }
-            }.also { player.addListener(it) }
+            }.also { capturedPlayer.addListener(it) }
         } else null
 
         onDispose {
-            if (player != null && listener != null) {
-                player.removeListener(listener)
+            if (capturedPlayer != null && listener != null) {
+                capturedPlayer.removeListener(listener)
             }
         }
     }
@@ -670,9 +671,9 @@ private fun LoadedVideoMediaCard(
     val player = if (isActiveItem) playerManager.player else null
 
     val sizeText = if (item.dataFilePath != null) {
-        formatBytesLong(java.io.File(item.dataFilePath).length())
+        formatBytes(java.io.File(item.dataFilePath).length())
     } else {
-        formatBytes(item.data?.bytes?.size ?: 0)
+        formatBytes((item.data?.bytes?.size ?: 0).toLong())
     }
 
     // Reset playback error when this item becomes active again
@@ -682,17 +683,18 @@ private fun LoadedVideoMediaCard(
 
     // Listen for playback errors only when this is the active item
     DisposableEffect(player) {
-        val listener = if (player != null) {
+        val capturedPlayer = player
+        val listener = if (capturedPlayer != null) {
             object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
                     playbackError = error.localizedMessage ?: error.errorCodeName
                 }
-            }.also { player.addListener(it) }
+            }.also { capturedPlayer.addListener(it) }
         } else null
 
         onDispose {
-            if (player != null && listener != null) {
-                player.removeListener(listener)
+            if (capturedPlayer != null && listener != null) {
+                capturedPlayer.removeListener(listener)
             }
         }
     }
@@ -869,10 +871,10 @@ private fun PlayerProgressSlider(
     var sliderPosition by remember { mutableFloatStateOf(0f) }
     var isSeeking by remember { mutableStateOf(false) }
 
-    // Periodically update position while not seeking
+    // Periodically update position while playing and not seeking
     LaunchedEffect(player) {
         while (isActive) {
-            if (!isSeeking) {
+            if (!isSeeking && player.isPlaying) {
                 val duration = player.duration.coerceAtLeast(1L)
                 val position = player.currentPosition
                 sliderPosition = (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
@@ -959,7 +961,7 @@ private fun LoadedBinaryMediaCard(
                         text = stringResource(
                             R.string.embedded_media_loaded_format,
                             mediaLabel,
-                            formatBytes(data.bytes.size)
+                            formatBytes(data.bytes.size.toLong())
                         ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1081,7 +1083,7 @@ private fun buildImageMetadataText(
 ): String {
     val dimensions = extractImageDimensions(imageData)
     val dimensionsText = dimensions?.let { "${it.first} x ${it.second}" } ?: unknownSizeLabel
-    return "$mimeType - $dimensionsText - ${formatBytes(imageData.size)}"
+    return "$mimeType - $dimensionsText - ${formatBytes(imageData.size.toLong())}"
 }
 
 private fun extractImageDimensions(imageData: ByteArray): Pair<Int, Int>? {
@@ -1102,10 +1104,3 @@ private fun extractImageDimensions(imageData: ByteArray): Pair<Int, Int>? {
     }
 }
 
-private fun formatBytes(size: Int): String {
-    return when {
-        size < 1024 -> "${size}B"
-        size < 1024 * 1024 -> String.format(Locale.US, "%.1fKB", size / 1024.0)
-        else -> String.format(Locale.US, "%.1fMB", size / (1024.0 * 1024.0))
-    }
-}
