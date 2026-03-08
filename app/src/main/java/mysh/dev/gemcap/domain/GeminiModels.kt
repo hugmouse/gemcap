@@ -105,6 +105,11 @@ sealed class GeminiContent {
         val url: String
     ) : GeminiContent()
 
+    data class DownloadProgress(
+        val fraction: Float,   // 0.0 to ~1.0
+        val bytesRead: Long
+    )
+
     // For media embedded in gemini pages (in-place loading like Lagrange)
     data class EmbeddedMedia(
         override val id: Int,
@@ -115,7 +120,7 @@ sealed class GeminiContent {
         val data: StableByteArray? = null,  // Populated when state is LOADED
         val dataFilePath: String? = null,   // Path to temp file for large media (audio/video)
         val errorMessage: String? = null,
-        val downloadProgress: Float? = null  // 0.0 to 1.0, null if unknown
+        val downloadProgress: DownloadProgress? = null
     ) : GeminiContent()
 
     enum class EmbeddedMediaState {

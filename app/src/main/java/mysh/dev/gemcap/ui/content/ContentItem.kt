@@ -14,8 +14,9 @@ class ContentActions(
     val onCopyLink: (String) -> Unit,
     val onOpenInNewTab: (String) -> Unit,
     val onLoadEmbeddedMedia: (Int) -> Unit,
+    val onPlayEmbeddedMedia: (Int) -> Unit,
     val onCollapseEmbeddedMedia: (Int) -> Unit,
-    val onDownloadEmbeddedMedia: (String, StableByteArray, String) -> Unit,
+    val onDownloadEmbeddedMedia: (String, StableByteArray?, String?, String) -> Unit,
     val playerManager: GemcapPlayerManager,
     val onFullscreen: (Player) -> Unit
 )
@@ -52,6 +53,7 @@ fun ContentItem(
             styles = styles,
             playerManager = actions.playerManager,
             onLoadMedia = actions.onLoadEmbeddedMedia,
+            onPlayMedia = actions.onPlayEmbeddedMedia,
             onCollapseMedia = actions.onCollapseEmbeddedMedia,
             onOpenInNewTab = actions.onOpenInNewTab,
             onCopyLink = actions.onCopyLink,

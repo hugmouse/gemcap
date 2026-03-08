@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -38,6 +39,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -84,10 +86,11 @@ fun EmbeddedMediaContent(
     styles: CachedTextStyles,
     playerManager: GemcapPlayerManager,
     onLoadMedia: (Int) -> Unit,
+    onPlayMedia: (Int) -> Unit,
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
-    onDownloadMedia: (String, StableByteArray, String) -> Unit,
+    onDownloadMedia: (String, StableByteArray?, String?, String) -> Unit,
     onFullscreen: (Player) -> Unit
 ) {
     when (item.state) {
@@ -108,7 +111,9 @@ fun EmbeddedMediaContent(
         GeminiContent.EmbeddedMediaState.LOADED -> {
             LoadedMediaCard(
                 item = item,
+                styles = styles,
                 playerManager = playerManager,
+                onPlayMedia = onPlayMedia,
                 onCollapseMedia = onCollapseMedia,
                 onOpenInNewTab = onOpenInNewTab,
                 onCopyLink = onCopyLink,
@@ -297,9 +302,9 @@ private fun LoadingMediaCard(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             val progress = item.downloadProgress
-            if (progress != null && progress > 0f) {
+            if (progress != null && progress.fraction > 0f) {
                 CircularProgressIndicator(
-                    progress = { progress },
+                    progress = { progress.fraction },
                     modifier = Modifier.size(20.dp),
                     strokeWidth = 2.dp,
                     color = styles.linkIconColor
@@ -311,8 +316,13 @@ private fun LoadingMediaCard(
                     color = styles.linkIconColor
                 )
             }
+            val loadingText = if (progress != null && progress.bytesRead > 0L) {
+                stringResource(R.string.embedded_media_loading_with_size, mediaLabel, formatBytesLong(progress.bytesRead))
+            } else {
+                stringResource(R.string.embedded_media_loading, mediaLabel)
+            }
             Text(
-                text = stringResource(R.string.embedded_media_loading, mediaLabel),
+                text = loadingText,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -323,11 +333,13 @@ private fun LoadingMediaCard(
 @Composable
 private fun LoadedMediaCard(
     item: GeminiContent.EmbeddedMedia,
+    styles: CachedTextStyles,
     playerManager: GemcapPlayerManager,
+    onPlayMedia: (Int) -> Unit,
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
-    onDownloadMedia: (String, StableByteArray, String) -> Unit,
+    onDownloadMedia: (String, StableByteArray?, String?, String) -> Unit,
     onFullscreen: (Player) -> Unit
 ) {
     val mediaType = getMediaType(item.mimeType)
@@ -348,8 +360,9 @@ private fun LoadedMediaCard(
     if (mediaType == MediaType.AUDIO) {
         LoadedAudioMediaCard(
             item = item,
-            audioData = data,
+            styles = styles,
             playerManager = playerManager,
+            onPlayMedia = onPlayMedia,
             onCollapseMedia = onCollapseMedia,
             onOpenInNewTab = onOpenInNewTab,
             onCopyLink = onCopyLink,
@@ -361,8 +374,9 @@ private fun LoadedMediaCard(
     if (mediaType == MediaType.VIDEO) {
         LoadedVideoMediaCard(
             item = item,
-            videoData = data,
+            styles = styles,
             playerManager = playerManager,
+            onPlayMedia = onPlayMedia,
             onCollapseMedia = onCollapseMedia,
             onOpenInNewTab = onOpenInNewTab,
             onCopyLink = onCopyLink,
@@ -399,7 +413,7 @@ private fun LoadedInlineImage(
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
-    onDownloadMedia: (String, StableByteArray, String) -> Unit
+    onDownloadMedia: (String, StableByteArray?, String?, String) -> Unit
 ) {
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
@@ -446,7 +460,7 @@ private fun LoadedInlineImage(
                 url = item.url,
                 onOpenInNewTab = onOpenInNewTab,
                 onCopyLink = onCopyLink,
-                onDownload = { onDownloadMedia(item.url, imageData, item.mimeType) },
+                onDownload = { onDownloadMedia(item.url, imageData, null, item.mimeType) },
                 extraItems = {
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.embedded_media_hide_image)) },
@@ -471,12 +485,13 @@ private fun LoadedInlineImage(
 @Composable
 private fun LoadedAudioMediaCard(
     item: GeminiContent.EmbeddedMedia,
-    audioData: StableByteArray,
+    styles: CachedTextStyles,
     playerManager: GemcapPlayerManager,
+    onPlayMedia: (Int) -> Unit,
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
-    onDownloadMedia: (String, StableByteArray, String) -> Unit
+    onDownloadMedia: (String, StableByteArray?, String?, String) -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var playbackError by remember { mutableStateOf<String?>(null) }
@@ -484,26 +499,21 @@ private fun LoadedAudioMediaCard(
     val name = item.linkText.takeIf { it.isNotBlank() }
         ?: item.url.substringAfterLast("/").ifEmpty { audioLabel }
 
-    DisposableEffect(item.id) {
-        val filePath = item.dataFilePath
-        if (filePath != null) {
-            playerManager.playFromFile(java.io.File(filePath), item.mimeType)
-        } else {
-            playerManager.play(audioData.bytes, item.mimeType)
-        }
-        onDispose {
-            playerManager.player?.stop()
-        }
-    }
+    val isActiveItem = playerManager.currentItemId == item.id
+    val player = if (isActiveItem) playerManager.player else null
 
-    val player = playerManager.player
     val sizeText = if (item.dataFilePath != null) {
         formatBytesLong(java.io.File(item.dataFilePath).length())
     } else {
-        formatBytes(audioData.bytes.size)
+        formatBytes(item.data?.bytes?.size ?: 0)
     }
 
-    // Listen for playback errors
+    // Reset playback error when this item becomes active again
+    LaunchedEffect(isActiveItem) {
+        if (isActiveItem) playbackError = null
+    }
+
+    // Listen for playback errors only when this is the active item
     DisposableEffect(player) {
         val listener = if (player != null) {
             object : Player.Listener {
@@ -548,54 +558,70 @@ private fun LoadedAudioMediaCard(
                     imageVector = Icons.Default.MusicNote,
                     contentDescription = null,
                     modifier = Modifier.size(28.dp),
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = styles.linkIconColor
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = name,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = styles.bodyMedium,
+                        color = styles.bodyColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "${item.mimeType} - $sizeText",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = styles.bodySmall,
+                        color = styles.bodyColor.copy(alpha = 0.7f)
                     )
                 }
             }
 
-            // Media3 controls
-            if (player != null) {
-                // Progress slider
-                PlayerProgressSlider(
-                    player = player,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                // Controls row: seek back, play/pause, seek forward, position/duration
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    SeekBackButton(player, modifier = Modifier.size(36.dp))
-                    PlayPauseButton(player, modifier = Modifier.size(40.dp))
-                    SeekForwardButton(player, modifier = Modifier.size(36.dp))
-                    PositionAndDurationText(
-                        player,
-                        modifier = Modifier.weight(1f),
+            // Media3 controls — only shown for the active item
+            // Wrap in CompositionLocalProvider so Media3 composables pick up adaptive color
+            CompositionLocalProvider(LocalContentColor provides styles.bodyColor) {
+                if (player != null) {
+                    PlayerProgressSlider(
+                        player = player,
+                        modifier = Modifier.fillMaxWidth()
                     )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        SeekBackButton(player, modifier = Modifier.size(36.dp))
+                        PlayPauseButton(player, modifier = Modifier.size(40.dp))
+                        SeekForwardButton(player, modifier = Modifier.size(36.dp))
+                        PositionAndDurationText(
+                            player,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                } else {
+                    // Not the active item — show a play button to switch playback here
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        IconButton(onClick = { onPlayMedia(item.id) }) {
+                            Icon(
+                                imageVector = Icons.Default.PlayCircle,
+                                contentDescription = stringResource(R.string.embedded_media_action_load_audio),
+                                modifier = Modifier.size(40.dp),
+                                tint = styles.linkIconColor
+                            )
+                        }
+                    }
                 }
-            } else {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
 
             // Error display
             playbackError?.let { error ->
                 Text(
                     text = stringResource(R.string.embedded_media_playback_error, error),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = styles.bodySmall,
                     color = MaterialTheme.colorScheme.error
                 )
             }
@@ -607,7 +633,7 @@ private fun LoadedAudioMediaCard(
             url = item.url,
             onOpenInNewTab = onOpenInNewTab,
             onCopyLink = onCopyLink,
-            onDownload = { onDownloadMedia(item.url, audioData, item.mimeType) },
+            onDownload = { onDownloadMedia(item.url, item.data, item.dataFilePath, item.mimeType) },
             extraItems = {
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.embedded_media_hide_audio)) },
@@ -625,12 +651,13 @@ private fun LoadedAudioMediaCard(
 @Composable
 private fun LoadedVideoMediaCard(
     item: GeminiContent.EmbeddedMedia,
-    videoData: StableByteArray,
+    styles: CachedTextStyles,
     playerManager: GemcapPlayerManager,
+    onPlayMedia: (Int) -> Unit,
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
-    onDownloadMedia: (String, StableByteArray, String) -> Unit,
+    onDownloadMedia: (String, StableByteArray?, String?, String) -> Unit,
     onFullscreen: (Player) -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -639,26 +666,21 @@ private fun LoadedVideoMediaCard(
     val name = item.linkText.takeIf { it.isNotBlank() }
         ?: item.url.substringAfterLast("/").ifEmpty { videoLabel }
 
-    DisposableEffect(item.id) {
-        val filePath = item.dataFilePath
-        if (filePath != null) {
-            playerManager.playFromFile(java.io.File(filePath), item.mimeType)
-        } else {
-            playerManager.play(videoData.bytes, item.mimeType)
-        }
-        onDispose {
-            playerManager.player?.stop()
-        }
-    }
+    val isActiveItem = playerManager.currentItemId == item.id
+    val player = if (isActiveItem) playerManager.player else null
 
-    val player = playerManager.player
     val sizeText = if (item.dataFilePath != null) {
         formatBytesLong(java.io.File(item.dataFilePath).length())
     } else {
-        formatBytes(videoData.bytes.size)
+        formatBytes(item.data?.bytes?.size ?: 0)
     }
 
-    // Listen for playback errors
+    // Reset playback error when this item becomes active again
+    LaunchedEffect(isActiveItem) {
+        if (isActiveItem) playbackError = null
+    }
+
+    // Listen for playback errors only when this is the active item
     DisposableEffect(player) {
         val listener = if (player != null) {
             object : Player.Listener {
@@ -675,17 +697,20 @@ private fun LoadedVideoMediaCard(
         }
     }
 
-    // Pause video when app goes to background (audio should continue)
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) {
-                playerManager.player?.pause()
+    // Pause video when app goes to background; audio is intentionally allowed
+    // to continue playing in the background via MediaSessionService
+    if (isActiveItem) {
+        val lifecycleOwner = LocalLifecycleOwner.current
+        DisposableEffect(lifecycleOwner) {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_STOP) {
+                    playerManager.player?.pause()
+                }
             }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose {
+                lifecycleOwner.lifecycle.removeObserver(observer)
+            }
         }
     }
 
@@ -706,7 +731,7 @@ private fun LoadedVideoMediaCard(
                 ),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
-            // Video surface — ContentFrame handles aspect ratio automatically
+            // Video surface — only attach when this is the active item
             if (player != null) {
                 Box(
                     modifier = Modifier
@@ -723,14 +748,22 @@ private fun LoadedVideoMediaCard(
                     )
                 }
             } else {
+                // Not the active item — show a play overlay
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(16f / 9f)
-                        .background(MaterialTheme.colorScheme.scrim),
+                        .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                        .background(MaterialTheme.colorScheme.scrim)
+                        .clickable { onPlayMedia(item.id) },
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.onSurface)
+                    Icon(
+                        imageVector = Icons.Default.PlayCircle,
+                        contentDescription = stringResource(R.string.embedded_media_action_load_video),
+                        modifier = Modifier.size(56.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                    )
                 }
             }
 
@@ -748,14 +781,15 @@ private fun LoadedVideoMediaCard(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = name,
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = styles.bodyMedium,
+                            color = styles.bodyColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = "${item.mimeType} - $sizeText",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = styles.bodySmall,
+                            color = styles.bodyColor.copy(alpha = 0.7f)
                         )
                     }
                     // Fullscreen button
@@ -764,38 +798,38 @@ private fun LoadedVideoMediaCard(
                             Icon(
                                 imageVector = Icons.Default.Fullscreen,
                                 contentDescription = stringResource(R.string.embedded_media_fullscreen),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = styles.bodyColor.copy(alpha = 0.7f)
                             )
                         }
                     }
                 }
 
-                // Controls
-                if (player != null) {
-                    PlayerProgressSlider(
-                        player = player,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        PlayPauseButton(player, modifier = Modifier.size(40.dp))
-                        PositionAndDurationText(
-                            player,
-                            modifier = Modifier.weight(1f),
+                // Controls — only for active item
+                CompositionLocalProvider(LocalContentColor provides styles.bodyColor) {
+                    if (player != null) {
+                        PlayerProgressSlider(
+                            player = player,
+                            modifier = Modifier.fillMaxWidth()
                         )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            PlayPauseButton(player, modifier = Modifier.size(40.dp))
+                            PositionAndDurationText(
+                                player,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
-                } else {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
 
                 // Error display
                 playbackError?.let { error ->
                     Text(
                         text = stringResource(R.string.embedded_media_playback_error, error),
-                        style = MaterialTheme.typography.bodySmall,
+                        style = styles.bodySmall,
                         color = MaterialTheme.colorScheme.error
                     )
                 }
@@ -808,7 +842,7 @@ private fun LoadedVideoMediaCard(
             url = item.url,
             onOpenInNewTab = onOpenInNewTab,
             onCopyLink = onCopyLink,
-            onDownload = { onDownloadMedia(item.url, videoData, item.mimeType) },
+            onDownload = { onDownloadMedia(item.url, item.data, item.dataFilePath, item.mimeType) },
             extraItems = {
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.embedded_media_hide_video)) },
@@ -873,7 +907,7 @@ private fun LoadedBinaryMediaCard(
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
-    onDownloadMedia: (String, StableByteArray, String) -> Unit
+    onDownloadMedia: (String, StableByteArray?, String?, String) -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val mediaLabel = mediaTypeLabel(mediaType)
@@ -940,7 +974,7 @@ private fun LoadedBinaryMediaCard(
             url = item.url,
             onOpenInNewTab = onOpenInNewTab,
             onCopyLink = onCopyLink,
-            onDownload = { onDownloadMedia(item.url, data, item.mimeType) },
+            onDownload = { onDownloadMedia(item.url, data, item.dataFilePath, item.mimeType) },
             extraItems = {
                 DropdownMenuItem(
                     text = {

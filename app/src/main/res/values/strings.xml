@@ -20,6 +20,7 @@
     <string name="embedded_media_menu_copy_link">Copy link address</string>
     <string name="embedded_media_menu_download">Download</string>
     <string name="embedded_media_loading">Loading %1$s…</string>
+    <string name="embedded_media_loading_with_size">Loading %1$s… %2$s</string>
     <string name="embedded_media_image_content_description">Image from %1$s</string>
     <string name="embedded_media_hide_image">Hide image</string>
     <string name="embedded_media_hide_audio">Hide audio</string>

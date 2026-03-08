@@ -759,7 +759,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val currentTab = activeTab ?: return
         val tabId = currentTab.id
 
-        // Cancel any existing loading job for this tab
+        // Stop any playing media and cancel loading jobs for this tab
+        playerManager.release()
         loadingJobs[tabId]?.cancel()
         cancelEmbeddedMediaJobsForTab(tabId)
 
@@ -769,7 +770,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
             // Check if input looks like a domain/URL or a search query
             if (!isLocalPage && !targetUrl.contains("://")) {
-                val looksLikeUrl = targetUrl.contains(".") && !targetUrl.contains(" ")
+                val looksLikeUrl = targetUrl.contains(".") && !targetUrl.contains(" ") && !targetUrl.startsWith(".")
                 targetUrl = if (looksLikeUrl) {
                     "gemini://$targetUrl"
                 } else {
@@ -1285,20 +1286,29 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val tempFile = File.createTempFile("media_", ".tmp", cacheDir)
 
         try {
+            var lastReportedBytes = 0L
             when (val result = fetchEmbeddedMediaWithRedirects(
                 initialUrl = resolvedUrl,
                 certAlias = certAlias,
                 outputFile = tempFile,
                 onProgress = { bytesRead ->
-                    updateEmbeddedMedia(
-                        tab = tab,
-                        itemId = itemId,
-                        expectedDisplayedUrl = expectedDisplayedUrl,
-                        expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
-                    ) { item ->
-                        item.copy(
-                            downloadProgress = (kotlin.math.ln(1f + bytesRead.toFloat()) / kotlin.math.ln(1f + DEFAULT_MAX_RESPONSE_BODY_BYTES.toFloat())).coerceAtMost(0.95f)
-                        )
+                    if (bytesRead - lastReportedBytes >= 16384L) {
+                        lastReportedBytes = bytesRead
+                        viewModelScope.launch(Dispatchers.Main.immediate) {
+                            updateEmbeddedMedia(
+                                tab = tab,
+                                itemId = itemId,
+                                expectedDisplayedUrl = expectedDisplayedUrl,
+                                expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
+                            ) { item ->
+                                item.copy(
+                                    downloadProgress = GeminiContent.DownloadProgress(
+                                        fraction = (kotlin.math.ln(1f + bytesRead.toFloat()) / kotlin.math.ln(1f + DEFAULT_MAX_RESPONSE_BODY_BYTES.toFloat())).coerceAtMost(0.95f),
+                                        bytesRead = bytesRead
+                                    )
+                                )
+                            }
+                        }
                     }
                 }
             )) {
@@ -1316,8 +1326,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                             mimeType = resolvedMimeType,
                             dataFilePath = tempFile.absolutePath,
                             data = null,
-                            errorMessage = null
+                            errorMessage = null,
+                            downloadProgress = null
                         )
+                    }
+                    // Auto-play when media finishes loading
+                    withContext(Dispatchers.Main) {
+                        playerManager.playFromFile(tempFile, resolvedMimeType, itemId)
                     }
                 }
 
@@ -1352,19 +1367,28 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         cacheKey: String,
         media: GeminiContent.EmbeddedMedia
     ) {
+        var lastReportedBytes = 0L
         when (val result = fetchEmbeddedMediaWithRedirects(
             initialUrl = resolvedUrl,
             certAlias = certAlias,
             onProgress = { bytesRead ->
-                updateEmbeddedMedia(
-                    tab = tab,
-                    itemId = itemId,
-                    expectedDisplayedUrl = expectedDisplayedUrl,
-                    expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
-                ) { item ->
-                    item.copy(
-                        downloadProgress = (kotlin.math.ln(1f + bytesRead.toFloat()) / kotlin.math.ln(1f + DEFAULT_MAX_RESPONSE_BODY_BYTES.toFloat())).coerceAtMost(0.95f)
-                    )
+                if (bytesRead - lastReportedBytes >= 16384L) {
+                    lastReportedBytes = bytesRead
+                    viewModelScope.launch(Dispatchers.Main.immediate) {
+                        updateEmbeddedMedia(
+                            tab = tab,
+                            itemId = itemId,
+                            expectedDisplayedUrl = expectedDisplayedUrl,
+                            expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
+                        ) { item ->
+                            item.copy(
+                                downloadProgress = GeminiContent.DownloadProgress(
+                                    fraction = (kotlin.math.ln(1f + bytesRead.toFloat()) / kotlin.math.ln(1f + DEFAULT_MAX_RESPONSE_BODY_BYTES.toFloat())).coerceAtMost(0.95f),
+                                    bytesRead = bytesRead
+                                )
+                            )
+                        }
+                    }
                 }
             }
         )) {
@@ -1385,8 +1409,16 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                         state = GeminiContent.EmbeddedMediaState.LOADED,
                         mimeType = resolvedMimeType,
                         data = stableData,
-                        errorMessage = null
+                        errorMessage = null,
+                        downloadProgress = null
                     )
+                }
+                // Auto-play audio/video when loaded to memory
+                val mediaType = resolvedMimeType.substringBefore("/")
+                if (mediaType == "audio" || mediaType == "video") {
+                    withContext(Dispatchers.Main) {
+                        playerManager.play(data, resolvedMimeType, itemId)
+                    }
                 }
             }
 
@@ -1406,8 +1438,26 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun playEmbeddedMedia(itemId: Int) {
+        val tab = activeTab ?: return
+        val media = tab.content.firstOrNull {
+            it is GeminiContent.EmbeddedMedia && it.id == itemId
+        } as? GeminiContent.EmbeddedMedia ?: return
+        if (media.state != GeminiContent.EmbeddedMediaState.LOADED) return
+
+        val filePath = media.dataFilePath
+        if (filePath != null) {
+            playerManager.playFromFile(java.io.File(filePath), media.mimeType, itemId)
+        } else {
+            val data = media.data?.bytes ?: return
+            playerManager.play(data, media.mimeType, itemId)
+        }
+    }
+
     fun collapseEmbeddedMedia(itemId: Int) {
-        playerManager.release()
+        if (playerManager.currentItemId == itemId) {
+            playerManager.release()
+        }
         val tab = activeTab ?: return
         // Delete temp file if media was loaded from disk
         val media = tab.content.firstOrNull {
@@ -1427,12 +1477,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun downloadEmbeddedMedia(url: String, data: StableByteArray, mimeType: String) {
+    fun downloadEmbeddedMedia(url: String, data: StableByteArray?, dataFilePath: String?, mimeType: String) {
         val fileName = DownloadUtils.suggestFileName(url, mimeType)
         viewModelScope.launch(Dispatchers.IO) {
+            val bytes = data?.bytes
+                ?: dataFilePath?.let { File(it).takeIf { f -> f.exists() }?.readBytes() }
+                ?: return@launch
             val result = DownloadUtils.saveToDownloads(
                 context = getApplication(),
-                data = data.bytes,
+                data = bytes,
                 fileName = fileName,
                 mimeType = mimeType
             )
@@ -1531,7 +1584,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         initialUrl: String,
         certAlias: String?,
         maxRedirects: Int = 5,
-        onProgress: ((bytesRead: Int) -> Unit)? = null,
+        onProgress: ((bytesRead: Long) -> Unit)? = null,
         outputFile: File? = null
     ): EmbeddedMediaFetchResult {
         val app = getApplication<Application>()
@@ -1644,7 +1697,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         initialUrl: String,
         certAlias: String?,
         maxRedirects: Int,
-        onProgress: ((bytesRead: Int) -> Unit)? = null,
+        onProgress: ((bytesRead: Long) -> Unit)? = null,
         outputFile: File? = null,
         mapResult: (result: GeminiFetchResult, currentUrl: String) -> RedirectLoopResult<T>,
         onInvalidRedirect: (statusCode: Int, message: String) -> T,

@@ -122,7 +122,7 @@ class GeminiClient(
     suspend fun fetch(
         url: String,
         certAlias: String? = null,
-        onProgress: ((bytesRead: Int) -> Unit)? = null
+        onProgress: ((bytesRead: Long) -> Unit)? = null
     ): GeminiFetchResult =
         withContext(Dispatchers.IO) {
             fetchWithRetry(url, certAlias, onProgress)
@@ -144,7 +144,7 @@ class GeminiClient(
         url: String,
         outputFile: File,
         certAlias: String? = null,
-        onProgress: ((bytesRead: Int) -> Unit)? = null
+        onProgress: ((bytesRead: Long) -> Unit)? = null
     ): GeminiFetchResult = withContext(Dispatchers.IO) {
         fetchWithRetry(url, certAlias, onProgress, outputFile)
     }
@@ -161,7 +161,7 @@ class GeminiClient(
     private suspend fun fetchWithRetry(
         url: String,
         certAlias: String?,
-        onProgress: ((bytesRead: Int) -> Unit)? = null,
+        onProgress: ((bytesRead: Long) -> Unit)? = null,
         outputFile: File? = null
     ): GeminiFetchResult {
         var lastError: GeminiFetchResult.Error? = null
@@ -189,7 +189,7 @@ class GeminiClient(
     private suspend fun fetchInternal(
         url: String,
         socketFactory: javax.net.ssl.SSLSocketFactory,
-        onProgress: ((bytesRead: Int) -> Unit)? = null,
+        onProgress: ((bytesRead: Long) -> Unit)? = null,
         outputFile: File? = null
     ): GeminiFetchResult {
         // Normalize and validate URL per Gemini spec
@@ -446,7 +446,7 @@ class GeminiClient(
 
     private fun parseResponse(
         inputStream: InputStream,
-        onProgress: ((bytesRead: Int) -> Unit)? = null
+        onProgress: ((bytesRead: Long) -> Unit)? = null
     ): GeminiResponse {
         val header = parseHeader(inputStream)
         var body: ByteArray? = null
@@ -459,7 +459,7 @@ class GeminiClient(
     private fun parseResponseToFile(
         inputStream: InputStream,
         outputFile: File,
-        onProgress: ((bytesRead: Int) -> Unit)? = null
+        onProgress: ((bytesRead: Long) -> Unit)? = null
     ): GeminiResponse {
         val header = parseHeader(inputStream)
         if (header.status in 20..29) {
@@ -470,11 +470,11 @@ class GeminiClient(
 
     private fun readResponseBodyWithLimit(
         inputStream: InputStream,
-        onProgress: ((bytesRead: Int) -> Unit)? = null
+        onProgress: ((bytesRead: Long) -> Unit)? = null
     ): ByteArray {
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
         val output = ByteArrayOutputStream()
-        var totalBytes = 0
+        var totalBytes = 0L
 
         while (true) {
             val read = inputStream.read(buffer)
@@ -496,10 +496,10 @@ class GeminiClient(
     private fun readResponseBodyToFile(
         inputStream: InputStream,
         outputFile: File,
-        onProgress: ((bytesRead: Int) -> Unit)? = null
+        onProgress: ((bytesRead: Long) -> Unit)? = null
     ) {
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        var totalBytes = 0
+        var totalBytes = 0L
         FileOutputStream(outputFile).use { fos ->
             while (true) {
                 val read = inputStream.read(buffer)
