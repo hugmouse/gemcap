@@ -289,6 +289,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun selectTab(tabId: String) {
+        playerManager.release()
         tabManager.selectTab(tabId)
         bookmarkManager.updateBookmarkStatus(activeTab?.url)
         // Lazy-load tabs that haven't been loaded yet (e.g., restored from session)
@@ -759,8 +760,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val currentTab = activeTab ?: return
         val tabId = currentTab.id
 
-        // Stop any playing media and cancel loading jobs for this tab
-        playerManager.release()
         loadingJobs[tabId]?.cancel()
         cancelEmbeddedMediaJobsForTab(tabId)
 
