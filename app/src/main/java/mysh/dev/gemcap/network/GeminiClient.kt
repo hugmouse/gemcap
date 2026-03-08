@@ -435,9 +435,9 @@ class GeminiClient(
 
         val headerBytes = headerBuffer.toByteArray()
         val headerLine = String(headerBytes, 0, headerEndIndex, Charsets.UTF_8)
-        val parts = headerLine.trim().split(Regex("\\s+"), 2)
-        val statusString = parts.getOrNull(0) ?: throw Exception("Invalid status")
-        val meta = parts.getOrNull(1) ?: ""
+        val spaceIndex = headerLine.indexOf(' ')
+        val statusString = if (spaceIndex != -1) headerLine.substring(0, spaceIndex) else headerLine
+        val meta = if (spaceIndex != -1) headerLine.substring(spaceIndex + 1) else ""
 
         val status = statusString.toIntOrNull() ?: throw Exception("Non-numeric status code")
 
@@ -463,7 +463,19 @@ class GeminiClient(
     ): GeminiResponse {
         val header = parseHeader(inputStream)
         if (header.status in 20..29) {
-            readResponseBodyToFile(inputStream, outputFile, onProgress)
+            val tempFile = File(outputFile.parent, outputFile.name + ".tmp")
+            try {
+                readResponseBodyToFile(inputStream, tempFile, onProgress)
+                if (!tempFile.renameTo(outputFile)) {
+                    tempFile.inputStream().use { input ->
+                        outputFile.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    tempFile.delete()
+                }
+            } catch (e: Exception) {
+                tempFile.delete()
+                throw e
+            }
         }
         return GeminiResponse(header.status, header.meta, body = null)
     }

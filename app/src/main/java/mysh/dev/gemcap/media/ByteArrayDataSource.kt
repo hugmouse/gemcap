@@ -21,6 +21,13 @@ class ByteArrayDataSource(
     override fun open(dataSpec: DataSpec): Long {
         uri = dataSpec.uri
         transferInitializing(dataSpec)
+        if (dataSpec.position > data.size ||
+            (dataSpec.position == data.size.toLong() && dataSpec.length > 0L)
+        ) {
+            throw java.io.IOException(
+                "Position ${dataSpec.position} exceeds data size ${data.size}"
+            )
+        }
         readPosition = dataSpec.position.toInt()
         bytesRemaining = if (dataSpec.length != C.LENGTH_UNSET.toLong()) {
             dataSpec.length.toInt()

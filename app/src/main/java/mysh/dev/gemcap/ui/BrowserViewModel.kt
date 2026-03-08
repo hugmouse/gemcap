@@ -1281,8 +1281,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         certAlias: String?,
         media: GeminiContent.EmbeddedMedia
     ) {
-        val cacheDir = File(getApplication<Application>().cacheDir, "media")
+        var cacheDir = File(getApplication<Application>().cacheDir, "media")
         cacheDir.mkdirs()
+        if (!cacheDir.exists() || !cacheDir.isDirectory) {
+            Log.w("BrowserViewModel", "Failed to create media cache dir, falling back to app cacheDir")
+            cacheDir = getApplication<Application>().cacheDir
+        }
         val tempFile = File.createTempFile("media_", ".tmp", cacheDir)
 
         try {
@@ -1482,7 +1486,14 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch(Dispatchers.IO) {
             val bytes = data?.bytes
                 ?: dataFilePath?.let { File(it).takeIf { f -> f.exists() }?.readBytes() }
-                ?: return@launch
+            if (bytes == null) {
+                withContext(Dispatchers.Main) {
+                    snackbarHostState.showSnackbar(
+                        getApplication<Application>().getString(R.string.embedded_media_download_unavailable, fileName)
+                    )
+                }
+                return@launch
+            }
             val result = DownloadUtils.saveToDownloads(
                 context = getApplication(),
                 data = bytes,

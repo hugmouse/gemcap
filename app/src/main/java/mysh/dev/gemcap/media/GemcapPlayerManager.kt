@@ -1,6 +1,7 @@
 package mysh.dev.gemcap.media
 
 import android.content.Context
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -61,7 +62,11 @@ class GemcapPlayerManager(private val context: Context) {
     }
 
     @OptIn(UnstableApi::class)
-    fun playFromFile(file: java.io.File, mimeType: String, itemId: Int? = null) {
+    fun playFromFile(file: java.io.File, mimeType: String, itemId: Int? = null): Boolean {
+        if (!file.exists() || !file.canRead()) {
+            Log.e(TAG, "Cannot play file: ${file.absolutePath} (exists=${file.exists()}, canRead=${file.canRead()})")
+            return false
+        }
         val exoPlayer = getOrCreatePlayer()
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
@@ -74,6 +79,7 @@ class GemcapPlayerManager(private val context: Context) {
         exoPlayer.setMediaItem(mediaItem)
         exoPlayer.prepare()
         exoPlayer.playWhenReady = true
+        return true
     }
 
     fun release() {
@@ -85,4 +91,8 @@ class GemcapPlayerManager(private val context: Context) {
     }
 
     fun isPlaying(): Boolean = player?.isPlaying == true
+
+    companion object {
+        private const val TAG = "GemcapPlayerManager"
+    }
 }
