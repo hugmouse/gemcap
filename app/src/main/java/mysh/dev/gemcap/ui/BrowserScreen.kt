@@ -339,7 +339,7 @@ private fun normalizeHomeUrl(rawUrl: String, searchEngine: SearchEngine): String
     if (trimmed.contains("://")) {
         return trimmed
     }
-    val looksLikeUrl = trimmed.contains(".") && !trimmed.contains(" ")
+    val looksLikeUrl = trimmed.contains(".") && !trimmed.contains(" ") && !trimmed.startsWith(".")
     return if (looksLikeUrl) {
         "gemini://$trimmed"
     } else {
@@ -598,6 +598,7 @@ private fun GeminiContentList(
             onCopyLink = callbacks::onCopyLink,
             onOpenInNewTab = callbacks::onOpenInNewTab,
             onLoadEmbeddedMedia = callbacks::onLoadEmbeddedMedia,
+            onPlayEmbeddedMedia = callbacks::onPlayEmbeddedMedia,
             onCollapseEmbeddedMedia = callbacks::onCollapseEmbeddedMedia,
             onDownloadEmbeddedMedia = callbacks::onDownloadEmbeddedMedia,
             playerManager = playerManager,
