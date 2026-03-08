@@ -14,6 +14,7 @@ class GemcapMediaSessionService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
+        if (controllerInfo.packageName != packageName) return null
         return mediaSession
     }
 
