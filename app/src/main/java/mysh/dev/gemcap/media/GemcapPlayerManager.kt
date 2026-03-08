@@ -1,6 +1,7 @@
 package mysh.dev.gemcap.media
 
 import android.content.Context
+import android.os.Looper
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.compose.runtime.Stable
@@ -42,8 +43,10 @@ class GemcapPlayerManager(private val context: Context) {
         return newPlayer
     }
 
+    /** Must be called on the main thread. */
     @OptIn(UnstableApi::class)
     fun play(data: ByteArray, mimeType: String, itemId: Int? = null) {
+        check(Looper.myLooper() == Looper.getMainLooper()) { "play() must be called on the main thread" }
         val exoPlayer = getOrCreatePlayer()
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
@@ -61,8 +64,10 @@ class GemcapPlayerManager(private val context: Context) {
         exoPlayer.playWhenReady = true
     }
 
+    /** Must be called on the main thread. */
     @OptIn(UnstableApi::class)
     fun playFromFile(file: java.io.File, mimeType: String, itemId: Int? = null): Boolean {
+        check(Looper.myLooper() == Looper.getMainLooper()) { "playFromFile() must be called on the main thread" }
         if (!file.exists() || !file.canRead()) {
             Log.e(TAG, "Cannot play file: ${file.absolutePath} (exists=${file.exists()}, canRead=${file.canRead()})")
             return false
