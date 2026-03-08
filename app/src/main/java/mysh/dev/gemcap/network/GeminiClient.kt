@@ -15,6 +15,7 @@ import mysh.dev.gemcap.domain.ServerCertInfo
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.asn1.x500.style.BCStyle
 import java.io.ByteArrayOutputStream
+import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
@@ -512,7 +513,7 @@ class GeminiClient(
     ) {
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
         var totalBytes = 0L
-        FileOutputStream(outputFile).use { fos ->
+        BufferedOutputStream(FileOutputStream(outputFile)).use { bos ->
             while (true) {
                 val read = inputStream.read(buffer)
                 if (read == -1) break
@@ -522,7 +523,7 @@ class GeminiClient(
                         "Response body exceeds max file size of $MAX_FILE_RESPONSE_BODY_BYTES bytes"
                     )
                 }
-                fos.write(buffer, 0, read)
+                bos.write(buffer, 0, read)
                 onProgress?.invoke(totalBytes)
             }
         }
