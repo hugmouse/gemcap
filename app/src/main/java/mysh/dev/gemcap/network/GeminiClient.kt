@@ -468,10 +468,16 @@ class GeminiClient(
             try {
                 readResponseBodyToFile(inputStream, tempFile, onProgress)
                 if (!tempFile.renameTo(outputFile)) {
-                    tempFile.inputStream().use { input ->
-                        outputFile.outputStream().use { output -> input.copyTo(output) }
+                    try {
+                        tempFile.inputStream().use { input ->
+                            outputFile.outputStream().use { output -> input.copyTo(output) }
+                        }
+                    } catch (e: Exception) {
+                        outputFile.delete()
+                        throw e
+                    } finally {
+                        tempFile.delete()
                     }
-                    tempFile.delete()
                 }
             } catch (e: Exception) {
                 tempFile.delete()
