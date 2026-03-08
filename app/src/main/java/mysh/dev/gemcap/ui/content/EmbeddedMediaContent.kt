@@ -481,7 +481,7 @@ private fun LoadedInlineImage(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(UnstableApi::class)
 @Composable
 private fun LoadedAudioMediaCard(
     item: GeminiContent.EmbeddedMedia,

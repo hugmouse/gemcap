@@ -1447,7 +1447,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
         val filePath = media.dataFilePath
         if (filePath != null) {
-            playerManager.playFromFile(java.io.File(filePath), media.mimeType, itemId)
+            playerManager.playFromFile(File(filePath), media.mimeType, itemId)
         } else {
             val data = media.data?.bytes ?: return
             playerManager.play(data, media.mimeType, itemId)
