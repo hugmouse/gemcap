@@ -499,7 +499,7 @@ private fun LoadedAudioMediaCard(
     val name = item.linkText.takeIf { it.isNotBlank() }
         ?: item.url.substringAfterLast("/").ifEmpty { audioLabel }
 
-    val isActiveItem = playerManager.currentItemId == item.id
+    val isActiveItem = playerManager.currentMediaKey == item.url
     val player = if (isActiveItem) playerManager.player else null
 
     val sizeText = run {
@@ -676,7 +676,7 @@ private fun LoadedVideoMediaCard(
     val name = item.linkText.takeIf { it.isNotBlank() }
         ?: item.url.substringAfterLast("/").ifEmpty { videoLabel }
 
-    val isActiveItem = playerManager.currentItemId == item.id
+    val isActiveItem = playerManager.currentMediaKey == item.url
     val player = if (isActiveItem) playerManager.player else null
 
     val sizeText = run {
@@ -889,10 +889,10 @@ private fun PlayerProgressSlider(
     var sliderPosition by remember { mutableFloatStateOf(0f) }
     var isSeeking by remember { mutableStateOf(false) }
 
-    // Periodically update position while playing and not seeking
+    // Periodically update position (including when paused/newly attached)
     LaunchedEffect(player) {
         while (isActive) {
-            if (!isSeeking && player.isPlaying) {
+            if (!isSeeking) {
                 val duration = player.duration.coerceAtLeast(1L)
                 val position = player.currentPosition
                 sliderPosition = (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f)

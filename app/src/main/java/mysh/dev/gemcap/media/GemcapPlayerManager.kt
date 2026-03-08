@@ -22,7 +22,7 @@ class GemcapPlayerManager(private val context: Context) {
     var player: ExoPlayer? by mutableStateOf(null)
         private set
 
-    var currentItemId: Int? by mutableStateOf(null)
+    var currentMediaKey: String? by mutableStateOf(null)
         private set
 
     private var mediaSession: MediaSession? = null
@@ -45,13 +45,13 @@ class GemcapPlayerManager(private val context: Context) {
 
     /** Must be called on the main thread. */
     @OptIn(UnstableApi::class)
-    fun play(data: ByteArray, mimeType: String, itemId: Int? = null) {
+    fun play(data: ByteArray, mimeType: String, mediaKey: String? = null) {
         check(Looper.myLooper() == Looper.getMainLooper()) { "play() must be called on the main thread" }
         val exoPlayer = getOrCreatePlayer()
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
 
-        currentItemId = itemId
+        currentMediaKey = mediaKey
         val dataSourceFactory = ByteArrayDataSource.Factory(data)
         val mediaItem = MediaItem.Builder()
             .setUri("gemini://local/media")
@@ -66,7 +66,7 @@ class GemcapPlayerManager(private val context: Context) {
 
     /** Must be called on the main thread. */
     @OptIn(UnstableApi::class)
-    fun playFromFile(file: java.io.File, mimeType: String, itemId: Int? = null): Boolean {
+    fun playFromFile(file: java.io.File, mimeType: String, mediaKey: String? = null): Boolean {
         check(Looper.myLooper() == Looper.getMainLooper()) { "playFromFile() must be called on the main thread" }
         if (!file.exists() || !file.canRead()) {
             Log.e(TAG, "Cannot play file: ${file.absolutePath} (exists=${file.exists()}, canRead=${file.canRead()})")
@@ -76,7 +76,7 @@ class GemcapPlayerManager(private val context: Context) {
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
 
-        currentItemId = itemId
+        currentMediaKey = mediaKey
         val mediaItem = MediaItem.Builder()
             .setUri(android.net.Uri.fromFile(file))
             .setMimeType(mimeType)
@@ -88,7 +88,7 @@ class GemcapPlayerManager(private val context: Context) {
     }
 
     fun release() {
-        currentItemId = null
+        currentMediaKey = null
         mediaSession?.release()
         mediaSession = null
         player?.release()

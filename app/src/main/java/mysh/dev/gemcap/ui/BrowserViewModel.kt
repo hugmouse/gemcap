@@ -263,6 +263,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         File(getApplication<Application>().cacheDir, "media").deleteRecursively()
     }
 
+    /** Delete any temp files backing embedded media in the given tab's current content. */
+    private fun cleanupTempMediaFiles(tab: TabState) {
+        tab.content.filterIsInstance<GeminiContent.EmbeddedMedia>()
+            .mapNotNull { it.dataFilePath }
+            .forEach { File(it).delete() }
+    }
+
     private fun reloadRestoredTabs() {
         // Only load the active tab immediately; other tabs load on first selection
         activeTabId ?: return
@@ -285,6 +292,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         loadingJobs[tabId]?.cancel()
         loadingJobs.remove(tabId)
         cancelEmbeddedMediaJobsForTab(tabId)
+        tabManager.tabs.find { it.id == tabId }?.let { cleanupTempMediaFiles(it) }
         tabManager.closeTab(tabId)
     }
 
@@ -762,6 +770,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
         loadingJobs[tabId]?.cancel()
         cancelEmbeddedMediaJobsForTab(tabId)
+        cleanupTempMediaFiles(currentTab)
 
         val job = viewModelScope.launch {
             var targetUrl = currentTab.url.trim()
@@ -1318,7 +1327,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 is EmbeddedMediaFetchResult.Success -> {
                     val mimeType = result.response.meta.lowercase().split(";").first().trim()
                     val resolvedMimeType = mimeType.ifBlank { media.mimeType }
-                    updateEmbeddedMedia(
+                    val updated = updateEmbeddedMedia(
                         tab = tab,
                         itemId = itemId,
                         expectedDisplayedUrl = expectedDisplayedUrl,
@@ -1333,9 +1342,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                             downloadProgress = null
                         )
                     }
-                    // Auto-play when media finishes loading
-                    withContext(Dispatchers.Main) {
-                        playerManager.playFromFile(tempFile, resolvedMimeType, itemId)
+                    if (updated) {
+                        // Auto-play when media finishes loading
+                        withContext(Dispatchers.Main) {
+                            playerManager.playFromFile(tempFile, resolvedMimeType, media.url)
+                        }
+                    } else {
+                        tempFile.delete()
                     }
                 }
 
@@ -1402,7 +1415,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 val resolvedMimeType = mimeType.ifBlank { media.mimeType }
                 val stableData = StableByteArray(data)
                 embeddedMediaCache.put(cacheKey, stableData, resolvedMimeType)
-                updateEmbeddedMedia(
+                val updated = updateEmbeddedMedia(
                     tab = tab,
                     itemId = itemId,
                     expectedDisplayedUrl = expectedDisplayedUrl,
@@ -1417,10 +1430,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     )
                 }
                 // Auto-play audio/video when loaded to memory
-                val mediaType = resolvedMimeType.substringBefore("/")
-                if (mediaType == "audio" || mediaType == "video") {
-                    withContext(Dispatchers.Main) {
-                        playerManager.play(data, resolvedMimeType, itemId)
+                if (updated) {
+                    val mediaType = resolvedMimeType.substringBefore("/")
+                    if (mediaType == "audio" || mediaType == "video") {
+                        withContext(Dispatchers.Main) {
+                            playerManager.play(data, resolvedMimeType, media.url)
+                        }
                     }
                 }
             }
@@ -1450,22 +1465,22 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
         val filePath = media.dataFilePath
         if (filePath != null) {
-            playerManager.playFromFile(File(filePath), media.mimeType, itemId)
+            playerManager.playFromFile(File(filePath), media.mimeType, media.url)
         } else {
             val data = media.data?.bytes ?: return
-            playerManager.play(data, media.mimeType, itemId)
+            playerManager.play(data, media.mimeType, media.url)
         }
     }
 
     fun collapseEmbeddedMedia(itemId: Int) {
-        if (playerManager.currentItemId == itemId) {
-            playerManager.release()
-        }
         val tab = activeTab ?: return
         // Delete temp file if media was loaded from disk
         val media = tab.content.firstOrNull {
             it is GeminiContent.EmbeddedMedia && it.id == itemId
         } as? GeminiContent.EmbeddedMedia
+        if (media != null && playerManager.currentMediaKey == media.url) {
+            playerManager.release()
+        }
         media?.dataFilePath?.let { path ->
             File(path).delete()
         }
@@ -1483,22 +1498,31 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun downloadEmbeddedMedia(url: String, data: StableByteArray?, dataFilePath: String?, mimeType: String) {
         val fileName = DownloadUtils.suggestFileName(url, mimeType)
         viewModelScope.launch(Dispatchers.IO) {
-            val bytes = data?.bytes
-                ?: dataFilePath?.let { File(it).takeIf { f -> f.exists() }?.readBytes() }
-            if (bytes == null) {
-                withContext(Dispatchers.Main) {
-                    snackbarHostState.showSnackbar(
-                        getApplication<Application>().getString(R.string.embedded_media_download_unavailable, fileName)
-                    )
+            val sourceFile = dataFilePath?.let { File(it).takeIf { f -> f.exists() } }
+            val result = if (sourceFile != null) {
+                DownloadUtils.saveToDownloads(
+                    context = getApplication(),
+                    sourceFile = sourceFile,
+                    fileName = fileName,
+                    mimeType = mimeType
+                )
+            } else {
+                val bytes = data?.bytes
+                if (bytes == null) {
+                    withContext(Dispatchers.Main) {
+                        snackbarHostState.showSnackbar(
+                            getApplication<Application>().getString(R.string.embedded_media_download_unavailable, fileName)
+                        )
+                    }
+                    return@launch
                 }
-                return@launch
+                DownloadUtils.saveToDownloads(
+                    context = getApplication(),
+                    data = bytes,
+                    fileName = fileName,
+                    mimeType = mimeType
+                )
             }
-            val result = DownloadUtils.saveToDownloads(
-                context = getApplication(),
-                data = bytes,
-                fileName = fileName,
-                mimeType = mimeType
-            )
             withContext(Dispatchers.Main) {
                 snackbarHostState.showSnackbar(
                     result.fold(
