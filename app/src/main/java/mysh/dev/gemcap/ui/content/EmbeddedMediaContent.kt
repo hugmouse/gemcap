@@ -502,10 +502,19 @@ private fun LoadedAudioMediaCard(
     val isActiveItem = playerManager.currentItemId == item.id
     val player = if (isActiveItem) playerManager.player else null
 
-    val sizeText = if (item.dataFilePath != null) {
-        formatBytes(java.io.File(item.dataFilePath).length())
-    } else {
-        formatBytes((item.data?.bytes?.size ?: 0).toLong())
+    val sizeText = run {
+        val filePath = item.dataFilePath
+        if (filePath != null) {
+            try {
+                val file = java.io.File(filePath)
+                if (file.exists() && file.canRead()) formatBytes(file.length())
+                else formatBytes((item.data?.bytes?.size ?: 0).toLong())
+            } catch (_: SecurityException) {
+                formatBytes((item.data?.bytes?.size ?: 0).toLong())
+            }
+        } else {
+            formatBytes((item.data?.bytes?.size ?: 0).toLong())
+        }
     }
 
     // Reset playback error when this item becomes active again
@@ -670,10 +679,19 @@ private fun LoadedVideoMediaCard(
     val isActiveItem = playerManager.currentItemId == item.id
     val player = if (isActiveItem) playerManager.player else null
 
-    val sizeText = if (item.dataFilePath != null) {
-        formatBytes(java.io.File(item.dataFilePath).length())
-    } else {
-        formatBytes((item.data?.bytes?.size ?: 0).toLong())
+    val sizeText = run {
+        val filePath = item.dataFilePath
+        if (filePath != null) {
+            try {
+                val file = java.io.File(filePath)
+                if (file.exists() && file.canRead()) formatBytes(file.length())
+                else formatBytes((item.data?.bytes?.size ?: 0).toLong())
+            } catch (_: SecurityException) {
+                formatBytes((item.data?.bytes?.size ?: 0).toLong())
+            }
+        } else {
+            formatBytes((item.data?.bytes?.size ?: 0).toLong())
+        }
     }
 
     // Reset playback error when this item becomes active again
