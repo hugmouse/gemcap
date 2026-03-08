@@ -30,7 +30,7 @@ class ByteArrayDataSource(
         }
         readPosition = dataSpec.position.toInt()
         bytesRemaining = if (dataSpec.length != C.LENGTH_UNSET.toLong()) {
-            dataSpec.length.toInt()
+            min(dataSpec.length.toInt(), data.size - readPosition).coerceAtLeast(0)
         } else {
             data.size - readPosition
         }
