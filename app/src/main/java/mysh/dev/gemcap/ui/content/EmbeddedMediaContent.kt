@@ -719,9 +719,12 @@ private fun LoadedVideoMediaCard(
     // to continue playing in the background via MediaSessionService
     if (isActiveItem) {
         val lifecycleOwner = LocalLifecycleOwner.current
+        val mediaKey = item.id.toString()
         DisposableEffect(lifecycleOwner) {
             val observer = LifecycleEventObserver { _, event ->
-                if (event == Lifecycle.Event.ON_STOP) {
+                if (event == Lifecycle.Event.ON_STOP &&
+                    playerManager.currentMediaKey == mediaKey
+                ) {
                     playerManager.player?.pause()
                 }
             }
