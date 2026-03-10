@@ -69,7 +69,6 @@ import androidx.media3.ui.compose.SURFACE_TYPE_SURFACE_VIEW
 import androidx.media3.ui.compose.material3.buttons.PlayPauseButton
 import androidx.media3.ui.compose.material3.buttons.SeekBackButton
 import androidx.media3.ui.compose.material3.buttons.SeekForwardButton
-import androidx.media3.ui.compose.material3.indicator.PositionAndDurationText
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.delay
@@ -587,7 +586,6 @@ private fun LoadedAudioMediaCard(
             }
 
             // Media3 controls — only shown for the active item
-            // Wrap in CompositionLocalProvider so Media3 composables pick up adaptive color
             CompositionLocalProvider(LocalContentColor provides styles.bodyColor) {
                 if (player != null) {
                     PlayerProgressSlider(
@@ -603,8 +601,8 @@ private fun LoadedAudioMediaCard(
                         SeekBackButton(player, modifier = Modifier.size(36.dp))
                         PlayPauseButton(player, modifier = Modifier.size(40.dp))
                         SeekForwardButton(player, modifier = Modifier.size(36.dp))
-                        PositionAndDurationText(
-                            player,
+                        PlayerPositionDurationText(
+                            player = player,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -837,8 +835,8 @@ private fun LoadedVideoMediaCard(
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             PlayPauseButton(player, modifier = Modifier.size(40.dp))
-                            PositionAndDurationText(
-                                player,
+                            PlayerPositionDurationText(
+                                player = player,
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -916,6 +914,46 @@ private fun PlayerProgressSlider(
         },
         modifier = modifier.height(24.dp)
     )
+}
+
+/**
+ * Drop-in replacement for media3's PositionAndDurationText because I couldn't figure out
+ * how the hell can I color the text in there.
+ */
+@Composable
+private fun PlayerPositionDurationText(
+    player: Player,
+    modifier: Modifier = Modifier
+) {
+    var text by remember { mutableStateOf("0:00 / 0:00") }
+
+    LaunchedEffect(player) {
+        while (isActive) {
+            val pos = formatPlayerTime(player.currentPosition)
+            val dur = formatPlayerTime(player.duration.coerceAtLeast(0L))
+            text = "$pos / $dur"
+            delay(200L)
+        }
+    }
+
+    Text(
+        text = text,
+        modifier = modifier,
+        style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+        color = LocalContentColor.current
+    )
+}
+
+private fun formatPlayerTime(timeMs: Long): String {
+    val totalSeconds = (timeMs / 1000).coerceAtLeast(0)
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    return if (hours > 0) {
+        String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format(Locale.US, "%d:%02d", minutes, seconds)
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
