@@ -1497,7 +1497,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val media = tab.content.firstOrNull {
             it is GeminiContent.EmbeddedMedia && it.id == itemId
         } as? GeminiContent.EmbeddedMedia
-        if (media != null && playerManager.currentMediaKey == media.url) {
+        if (media != null && playerManager.currentMediaKey == media.id.toString()) {
             playerManager.release()
         }
         media?.dataFilePath?.let { path ->
