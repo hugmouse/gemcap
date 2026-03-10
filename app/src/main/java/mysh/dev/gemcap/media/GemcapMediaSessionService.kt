@@ -22,12 +22,12 @@ class GemcapMediaSessionService : MediaSessionService() {
         instance = this
         pendingSession?.let {
             mediaSession = it
+            addSession(it)
             pendingSession = null
         }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
-        if (controllerInfo.packageName != packageName) return null
         return mediaSession
     }
 
@@ -40,7 +40,6 @@ class GemcapMediaSessionService : MediaSessionService() {
     }
 
     override fun onDestroy() {
-        // Session lifecycle is owned by GemcapPlayerManager; just clear our reference.
         mediaSession = null
         instance = null
         super.onDestroy()
@@ -57,7 +56,11 @@ class GemcapMediaSessionService : MediaSessionService() {
          */
         internal fun publishSession(session: MediaSession?) {
             pendingSession = session
-            instance?.mediaSession = session
+            instance?.let { service ->
+                service.mediaSession?.let { service.removeSession(it) }
+                service.mediaSession = session
+                session?.let { service.addSession(it) }
+            }
         }
     }
 }
