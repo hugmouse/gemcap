@@ -300,7 +300,6 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun selectTab(tabId: String) {
-        playerManager.release()
         tabManager.selectTab(tabId)
         bookmarkManager.updateBookmarkStatus(activeTab?.url)
         // Lazy-load tabs that haven't been loaded yet (e.g., restored from session)
