@@ -292,6 +292,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         loadingJobs[tabId]?.cancel()
         loadingJobs.remove(tabId)
         cancelEmbeddedMediaJobsForTab(tabId)
+        if (tabId == activeTabId) {
+            playerManager.release()
+        }
         tabManager.tabs.find { it.id == tabId }?.let { cleanupTempMediaFiles(it) }
         tabManager.closeTab(tabId)
     }
@@ -1243,7 +1246,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             return
         }
  
-        val isStreamableMedia = media.mimeType.startsWith("audio/") || media.mimeType.startsWith("video/")
+        val useFilePath = media.mimeType.isBlank() ||
+            media.mimeType.startsWith("audio/") ||
+            media.mimeType.startsWith("video/")
 
         val job = viewModelScope.launch {
             try {
@@ -1266,10 +1271,24 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     return@launch
                 }
 
-                if (isStreamableMedia) {
+                if (useFilePath) {
                     loadEmbeddedMediaToFile(tab, itemId, baseDisplayedUrl, resolvedUrl, certAlias, media)
                 } else {
                     loadEmbeddedMediaToMemory(tab, itemId, baseDisplayedUrl, resolvedUrl, certAlias, cacheKey, media)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                updateEmbeddedMedia(
+                    tab = tab,
+                    itemId = itemId,
+                    expectedDisplayedUrl = baseDisplayedUrl,
+                    expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
+                ) { item ->
+                    item.copy(
+                        state = GeminiContent.EmbeddedMediaState.ERROR,
+                        errorMessage = e.message ?: "Unknown error"
+                    )
                 }
             } finally {
                 if (embeddedMediaLoadingJobs[loadingJobKey] == coroutineContext[Job]) {
@@ -1345,7 +1364,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     if (updated) {
                         // Auto-play when media finishes loading
                         withContext(Dispatchers.Main) {
-                            playerManager.playFromFile(tempFile, resolvedMimeType, media.url)
+                            playerManager.playFromFile(tempFile, resolvedMimeType, itemId.toString())
                         }
                     } else {
                         tempFile.delete()
@@ -1434,7 +1453,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     val mediaType = resolvedMimeType.substringBefore("/")
                     if (mediaType == "audio" || mediaType == "video") {
                         withContext(Dispatchers.Main) {
-                            playerManager.play(data, resolvedMimeType, media.url)
+                            playerManager.play(data, resolvedMimeType, itemId.toString())
                         }
                     }
                 }
@@ -1465,10 +1484,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
         val filePath = media.dataFilePath
         if (filePath != null) {
-            playerManager.playFromFile(File(filePath), media.mimeType, media.url)
+            playerManager.playFromFile(File(filePath), media.mimeType, itemId.toString())
         } else {
             val data = media.data?.bytes ?: return
-            playerManager.play(data, media.mimeType, media.url)
+            playerManager.play(data, media.mimeType, itemId.toString())
         }
     }
 

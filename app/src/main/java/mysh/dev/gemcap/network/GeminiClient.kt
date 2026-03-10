@@ -457,14 +457,16 @@ class GeminiClient(
         return GeminiResponse(header.status, header.meta, body)
     }
 
-    private fun parseResponseToFile(
+    private suspend fun parseResponseToFile(
         inputStream: InputStream,
         outputFile: File,
         onProgress: ((bytesRead: Long) -> Unit)? = null
     ): GeminiResponse {
         val header = parseHeader(inputStream)
         if (header.status in 20..29) {
-            val tempFile = File(outputFile.parent, outputFile.name + ".tmp")
+            val parentDir = outputFile.absoluteFile.parentFile ?: File(".")
+            parentDir.mkdirs()
+            val tempFile = File(parentDir, outputFile.name + ".tmp")
             try {
                 readResponseBodyToFile(inputStream, tempFile, onProgress)
                 if (!tempFile.renameTo(outputFile)) {
@@ -512,7 +514,7 @@ class GeminiClient(
         return output.toByteArray()
     }
 
-    private fun readResponseBodyToFile(
+    private suspend fun readResponseBodyToFile(
         inputStream: InputStream,
         outputFile: File,
         onProgress: ((bytesRead: Long) -> Unit)? = null
@@ -521,6 +523,7 @@ class GeminiClient(
         var totalBytes = 0L
         BufferedOutputStream(FileOutputStream(outputFile)).use { bos ->
             while (true) {
+                currentCoroutineContext().ensureActive()
                 val read = inputStream.read(buffer)
                 if (read == -1) break
                 totalBytes += read

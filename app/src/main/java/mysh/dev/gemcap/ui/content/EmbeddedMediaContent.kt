@@ -499,7 +499,7 @@ private fun LoadedAudioMediaCard(
     val name = item.linkText.takeIf { it.isNotBlank() }
         ?: item.url.substringAfterLast("/").ifEmpty { audioLabel }
 
-    val isActiveItem = playerManager.currentMediaKey == item.url
+    val isActiveItem = playerManager.currentMediaKey == item.id.toString()
     val player = if (isActiveItem) playerManager.player else null
 
     val sizeText = run {
@@ -676,7 +676,7 @@ private fun LoadedVideoMediaCard(
     val name = item.linkText.takeIf { it.isNotBlank() }
         ?: item.url.substringAfterLast("/").ifEmpty { videoLabel }
 
-    val isActiveItem = playerManager.currentMediaKey == item.url
+    val isActiveItem = playerManager.currentMediaKey == item.id.toString()
     val player = if (isActiveItem) playerManager.player else null
 
     val sizeText = run {
