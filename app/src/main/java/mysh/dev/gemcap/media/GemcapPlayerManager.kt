@@ -1,6 +1,7 @@
 package mysh.dev.gemcap.media
 
 import android.content.Context
+import android.content.Intent
 import android.os.Looper
 import android.util.Log
 import androidx.annotation.OptIn
@@ -40,6 +41,8 @@ class GemcapPlayerManager(private val context: Context) {
         }
         player = newPlayer
         mediaSession = MediaSession.Builder(context, newPlayer).build()
+        GemcapMediaSessionService.publishSession(mediaSession)
+        context.startService(Intent(context, GemcapMediaSessionService::class.java))
         return newPlayer
     }
 
@@ -88,14 +91,14 @@ class GemcapPlayerManager(private val context: Context) {
     }
 
     fun release() {
+        GemcapMediaSessionService.publishSession(null)
+        context.stopService(Intent(context, GemcapMediaSessionService::class.java))
         currentMediaKey = null
         mediaSession?.release()
         mediaSession = null
         player?.release()
         player = null
     }
-
-    fun isPlaying(): Boolean = player?.isPlaying == true
 
     companion object {
         private const val TAG = "GemcapPlayerManager"
