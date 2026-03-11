@@ -19,11 +19,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import mysh.dev.gemcap.domain.ConsoleEntry
 import mysh.dev.gemcap.domain.ConsoleLevel
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.US)
+private val timeFormat = DateTimeFormatter.ofPattern("HH:mm:ss", Locale.US)
 
 @Composable
 fun ConsoleEntryItem(
@@ -47,7 +48,7 @@ fun ConsoleEntryItem(
     ) {
         Text(
             text = buildString {
-                append(timeFormat.format(Date(entry.timestamp)))
+                append(Instant.ofEpochMilli(entry.timestamp).atZone(ZoneId.systemDefault()).format(timeFormat))
                 append("  ")
                 append(entry.title)
             },
