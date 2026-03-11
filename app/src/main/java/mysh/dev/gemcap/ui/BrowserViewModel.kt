@@ -1038,6 +1038,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun setHomePage(url: String) = settingsManager.setHomePage(url)
     fun updateDeveloperMode(enabled: Boolean) {
         settingsManager.updateDeveloperMode(enabled)
+        if (!enabled) {
+            consoleManager.dismissConsole()
+            logcatReader.stop()
+        }
     }
 
     // Image handling
