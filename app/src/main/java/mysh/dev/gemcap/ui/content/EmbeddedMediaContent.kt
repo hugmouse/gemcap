@@ -481,6 +481,62 @@ private fun LoadedInlineImage(
     }
 }
 
+private fun calculateSizeText(item: GeminiContent.EmbeddedMedia): String {
+    val filePath = item.dataFilePath
+    return if (filePath != null) {
+        try {
+            val file = java.io.File(filePath)
+            if (file.exists() && file.canRead()) formatBytes(file.length())
+            else formatBytes((item.data?.bytes?.size ?: 0).toLong())
+        } catch (_: SecurityException) {
+            formatBytes((item.data?.bytes?.size ?: 0).toLong())
+        }
+    } else {
+        formatBytes((item.data?.bytes?.size ?: 0).toLong())
+    }
+}
+
+@Composable
+private fun PlayerErrorEffect(
+    player: Player?,
+    isActiveItem: Boolean,
+    onError: (String?) -> Unit
+) {
+    // Reset playback error when this item becomes active again
+    LaunchedEffect(isActiveItem) {
+        if (isActiveItem) onError(null)
+    }
+
+    // Listen for playback errors only when this is the active item
+    DisposableEffect(player) {
+        val capturedPlayer = player
+        val listener = if (capturedPlayer != null) {
+            object : Player.Listener {
+                override fun onPlayerError(error: PlaybackException) {
+                    onError(error.localizedMessage ?: error.errorCodeName)
+                }
+            }.also { capturedPlayer.addListener(it) }
+        } else null
+
+        onDispose {
+            if (capturedPlayer != null && listener != null) {
+                capturedPlayer.removeListener(listener)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlaybackErrorText(error: String?, styles: CachedTextStyles) {
+    error?.let {
+        Text(
+            text = stringResource(R.string.embedded_media_playback_error, it),
+            style = styles.bodySmall,
+            color = MaterialTheme.colorScheme.error
+        )
+    }
+}
+
 @OptIn(UnstableApi::class)
 @Composable
 private fun LoadedAudioMediaCard(
@@ -501,44 +557,9 @@ private fun LoadedAudioMediaCard(
 
     val isActiveItem = playerManager.currentMediaKey == item.id.toString()
     val player = if (isActiveItem) playerManager.player else null
+    val sizeText = calculateSizeText(item)
 
-    val sizeText = run {
-        val filePath = item.dataFilePath
-        if (filePath != null) {
-            try {
-                val file = java.io.File(filePath)
-                if (file.exists() && file.canRead()) formatBytes(file.length())
-                else formatBytes((item.data?.bytes?.size ?: 0).toLong())
-            } catch (_: SecurityException) {
-                formatBytes((item.data?.bytes?.size ?: 0).toLong())
-            }
-        } else {
-            formatBytes((item.data?.bytes?.size ?: 0).toLong())
-        }
-    }
-
-    // Reset playback error when this item becomes active again
-    LaunchedEffect(isActiveItem) {
-        if (isActiveItem) playbackError = null
-    }
-
-    // Listen for playback errors only when this is the active item
-    DisposableEffect(player) {
-        val capturedPlayer = player
-        val listener = if (capturedPlayer != null) {
-            object : Player.Listener {
-                override fun onPlayerError(error: PlaybackException) {
-                    playbackError = error.localizedMessage ?: error.errorCodeName
-                }
-            }.also { capturedPlayer.addListener(it) }
-        } else null
-
-        onDispose {
-            if (capturedPlayer != null && listener != null) {
-                capturedPlayer.removeListener(listener)
-            }
-        }
-    }
+    PlayerErrorEffect(player, isActiveItem) { playbackError = it }
 
     Box {
         Column(
@@ -626,14 +647,7 @@ private fun LoadedAudioMediaCard(
                 }
             }
 
-            // Error display
-            playbackError?.let { error ->
-                Text(
-                    text = stringResource(R.string.embedded_media_playback_error, error),
-                    style = styles.bodySmall,
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
+            PlaybackErrorText(playbackError, styles)
         }
 
         MediaContextMenu(
@@ -677,44 +691,9 @@ private fun LoadedVideoMediaCard(
 
     val isActiveItem = playerManager.currentMediaKey == item.id.toString()
     val player = if (isActiveItem) playerManager.player else null
+    val sizeText = calculateSizeText(item)
 
-    val sizeText = run {
-        val filePath = item.dataFilePath
-        if (filePath != null) {
-            try {
-                val file = java.io.File(filePath)
-                if (file.exists() && file.canRead()) formatBytes(file.length())
-                else formatBytes((item.data?.bytes?.size ?: 0).toLong())
-            } catch (_: SecurityException) {
-                formatBytes((item.data?.bytes?.size ?: 0).toLong())
-            }
-        } else {
-            formatBytes((item.data?.bytes?.size ?: 0).toLong())
-        }
-    }
-
-    // Reset playback error when this item becomes active again
-    LaunchedEffect(isActiveItem) {
-        if (isActiveItem) playbackError = null
-    }
-
-    // Listen for playback errors only when this is the active item
-    DisposableEffect(player) {
-        val capturedPlayer = player
-        val listener = if (capturedPlayer != null) {
-            object : Player.Listener {
-                override fun onPlayerError(error: PlaybackException) {
-                    playbackError = error.localizedMessage ?: error.errorCodeName
-                }
-            }.also { capturedPlayer.addListener(it) }
-        } else null
-
-        onDispose {
-            if (capturedPlayer != null && listener != null) {
-                capturedPlayer.removeListener(listener)
-            }
-        }
-    }
+    PlayerErrorEffect(player, isActiveItem) { playbackError = it }
 
     // Pause video when app goes to background; audio is intentionally allowed
     // to continue playing in the background via MediaSessionService
@@ -784,14 +763,7 @@ private fun LoadedVideoMediaCard(
                     VideoControls(player = player, contentColor = styles.bodyColor)
                 }
 
-                // Error display
-                playbackError?.let { error ->
-                    Text(
-                        text = stringResource(R.string.embedded_media_playback_error, error),
-                        style = styles.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
+                PlaybackErrorText(playbackError, styles)
             }
         }
 
