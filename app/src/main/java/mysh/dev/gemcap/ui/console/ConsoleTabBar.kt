@@ -8,6 +8,7 @@ import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -30,6 +31,16 @@ fun ConsoleTabBar(
     modifier: Modifier = Modifier
 ) {
     val tabs = if (developerMode) ConsoleTab.entries else ConsoleTab.entries.filter { it != ConsoleTab.LOGCAT }
+
+    // In case if we have developer's mode enabled and
+    // we are currently on a LOGCAT tab in console and
+    // we are about to disable developer mode ->
+    // move to ALL tab instead of -1
+    LaunchedEffect(developerMode) {
+        if (!developerMode && selectedTab == ConsoleTab.LOGCAT) {
+            onTabSelected(ConsoleTab.ALL)
+        }
+    }
 
     ScrollableTabRow(
         selectedTabIndex = tabs.indexOf(selectedTab).coerceAtLeast(0),
