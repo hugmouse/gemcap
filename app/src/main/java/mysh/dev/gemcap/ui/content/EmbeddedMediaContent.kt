@@ -843,6 +843,7 @@ private fun VideoSurface(player: Player?, onPlayMedia: () -> Unit) {
     }
 }
 
+@OptIn(UnstableApi::class)
 @Composable
 private fun VideoControls(player: Player, contentColor: Color) {
     CompositionLocalProvider(LocalContentColor provides contentColor) {
@@ -869,6 +870,7 @@ private fun VideoControls(player: Player, contentColor: Color) {
  * Built using a standard Material3 Slider since media3-ui-compose-material3 1.9.2 does not
  * include a dedicated progress slider composable.
  */
+@OptIn(UnstableApi::class)
 @Composable
 private fun PlayerProgressSlider(
     player: Player,
