@@ -33,7 +33,7 @@ class LogcatReader(
                 while (isActive) {
                     val line = reader.readLine() ?: break
                     val parsed = parseLine(line) ?: continue
-                    if (parsed.tag in NOISY_TAGS) continue
+                    if (NOISY_TAG_PREFIXES.any { parsed.tag.startsWith(it) }) continue
                     logger.log(
                         category = ConsoleCategory.LOGCAT,
                         level = mapLevel(parsed.level),
@@ -54,11 +54,13 @@ class LogcatReader(
     }
 
     companion object {
-        private val NOISY_TAGS = setOf(
+        private val NOISY_TAG_PREFIXES = arrayOf(
             "ViewRootImpl",
             "InsetsController",
             "InsetsSourceConsumer",
             "InputTransport",
+            "InputMethodManager",
+            "ImeTracker",
             "Choreographer",
             "OpenGLRenderer",
             "RenderThread",
