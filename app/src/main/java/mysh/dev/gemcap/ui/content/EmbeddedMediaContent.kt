@@ -617,8 +617,10 @@ private fun LoadedAudioMediaCard(
             // Media3 controls — only shown for the active item
             CompositionLocalProvider(LocalContentColor provides styles.bodyColor) {
                 if (player != null) {
+                    val snapshot = rememberPlaybackSnapshot(player)
                     PlayerProgressSlider(
                         player = player,
+                        snapshot = snapshot,
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -631,7 +633,7 @@ private fun LoadedAudioMediaCard(
                         PlayPauseButton(player, modifier = Modifier.size(40.dp))
                         SeekForwardButton(player, modifier = Modifier.size(36.dp))
                         PlayerPositionDurationText(
-                            player = player,
+                            snapshot = snapshot,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -856,8 +858,10 @@ private fun VideoSurface(player: Player?, onPlayMedia: () -> Unit) {
 @Composable
 private fun VideoControls(player: Player, contentColor: Color) {
     CompositionLocalProvider(LocalContentColor provides contentColor) {
+        val snapshot = rememberPlaybackSnapshot(player)
         PlayerProgressSlider(
             player = player,
+            snapshot = snapshot,
             modifier = Modifier.fillMaxWidth()
         )
         Row(
@@ -867,11 +871,34 @@ private fun VideoControls(player: Player, contentColor: Color) {
         ) {
             PlayPauseButton(player, modifier = Modifier.size(40.dp))
             PlayerPositionDurationText(
-                player = player,
+                snapshot = snapshot,
                 modifier = Modifier.weight(1f),
             )
         }
     }
+}
+
+/**
+ * A single-poll playback snapshot so the slider and timestamp always render from the same tick.
+ */
+private data class PlaybackSnapshot(
+    val currentPositionMs: Long = 0L,
+    val durationMs: Long = 0L,
+)
+
+@Composable
+private fun rememberPlaybackSnapshot(player: Player): PlaybackSnapshot {
+    var snapshot by remember { mutableStateOf(PlaybackSnapshot()) }
+    LaunchedEffect(player) {
+        while (isActive) {
+            snapshot = PlaybackSnapshot(
+                currentPositionMs = player.currentPosition,
+                durationMs = player.duration.coerceAtLeast(0L),
+            )
+            delay(200L)
+        }
+    }
+    return snapshot
 }
 
 /**
@@ -883,21 +910,15 @@ private fun VideoControls(player: Player, contentColor: Color) {
 @Composable
 private fun PlayerProgressSlider(
     player: Player,
+    snapshot: PlaybackSnapshot,
     modifier: Modifier = Modifier
 ) {
     var sliderPosition by remember { mutableFloatStateOf(0f) }
     var isSeeking by remember { mutableStateOf(false) }
 
-    // Periodically update position (including when paused/newly attached)
-    LaunchedEffect(player) {
-        while (isActive) {
-            if (!isSeeking) {
-                val duration = player.duration.coerceAtLeast(1L)
-                val position = player.currentPosition
-                sliderPosition = (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-            }
-            delay(200L)
-        }
+    if (!isSeeking) {
+        val duration = snapshot.durationMs.coerceAtLeast(1L)
+        sliderPosition = (snapshot.currentPositionMs.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
     }
 
     Slider(
@@ -923,22 +944,14 @@ private fun PlayerProgressSlider(
  */
 @Composable
 private fun PlayerPositionDurationText(
-    player: Player,
+    snapshot: PlaybackSnapshot,
     modifier: Modifier = Modifier
 ) {
-    var text by remember { mutableStateOf("0:00 / 0:00") }
-
-    LaunchedEffect(player) {
-        while (isActive) {
-            val pos = formatPlayerTime(player.currentPosition)
-            val dur = formatPlayerTime(player.duration.coerceAtLeast(0L))
-            text = "$pos / $dur"
-            delay(200L)
-        }
-    }
+    val pos = formatPlayerTime(snapshot.currentPositionMs)
+    val dur = formatPlayerTime(snapshot.durationMs)
 
     Text(
-        text = text,
+        text = "$pos / $dur",
         modifier = modifier,
         style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
         color = LocalContentColor.current
