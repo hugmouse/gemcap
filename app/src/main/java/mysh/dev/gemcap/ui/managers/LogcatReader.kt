@@ -24,12 +24,14 @@ class LogcatReader(
         if (readJob?.isActive == true) return
         val pid = android.os.Process.myPid()
         readJob = scope.launch(Dispatchers.IO) {
+            var proc: Process? = null
+            var reader: BufferedReader? = null
             try {
-                val proc = Runtime.getRuntime().exec(
+                proc = Runtime.getRuntime().exec(
                     arrayOf("logcat", "-v", "threadtime", "--pid=$pid")
                 )
                 process = proc
-                val reader: BufferedReader = proc.inputStream.bufferedReader()
+                reader = proc.inputStream.bufferedReader()
                 while (isActive) {
                     val line = reader.readLine() ?: break
                     val parsed = parseLine(line) ?: continue
@@ -42,6 +44,11 @@ class LogcatReader(
                 }
             } catch (_: Exception) {
                 // Process was destroyed or IO error — expected on stop
+            } finally {
+                reader?.close()
+                proc?.destroyForcibly()
+                process = null
+                readJob = null
             }
         }
     }
