@@ -17,7 +17,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import mysh.dev.gemcap.domain.ConsoleCategory
 import mysh.dev.gemcap.domain.ConsoleEntry
 import mysh.dev.gemcap.domain.ConsoleLevel
 import java.text.SimpleDateFormat
