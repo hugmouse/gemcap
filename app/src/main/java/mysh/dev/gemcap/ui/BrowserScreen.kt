@@ -81,7 +81,6 @@ import mysh.dev.gemcap.BuildConfig
 import mysh.dev.gemcap.data.FontSize
 import mysh.dev.gemcap.data.SearchEngine
 import mysh.dev.gemcap.data.ThemeMode
-import mysh.dev.gemcap.domain.ConsoleEntry
 import mysh.dev.gemcap.domain.GeminiContent
 import mysh.dev.gemcap.R
 import mysh.dev.gemcap.domain.GeminiError
@@ -251,10 +250,10 @@ fun BrowserScreen(
         onDismissTabSwitcher = { showTabSwitcher = false },
         snackbarHostState = snackbarHostState,
         callbacks = callbacks,
-        playerManager = viewModel.playerManager,
-        consoleEntries = viewModel.consoleEntries,
-        consoleErrorCount = viewModel.consoleErrorCount
+        playerManager = viewModel.playerManager
     )
+
+    ConsoleOverlay(viewModel = viewModel, callbacks = callbacks)
 }
 
 @Composable
@@ -270,9 +269,7 @@ private fun BrowserScaffold(
     onDismissTabSwitcher: () -> Unit,
     snackbarHostState: SnackbarHostState,
     callbacks: BrowserCallbacks,
-    playerManager: GemcapPlayerManager,
-    consoleEntries: ImmutableList<ConsoleEntry>,
-    consoleErrorCount: Int
+    playerManager: GemcapPlayerManager
 ) {
     logRecomposition { ">>> BrowserScaffold" }
 
@@ -337,17 +334,6 @@ private fun BrowserScaffold(
             callbacks = callbacks
         )
     }
-
-    ConsoleSheet(
-        visible = panelState.showConsole,
-        entries = consoleEntries,
-        errorCount = consoleErrorCount,
-        developerMode = dialogsState.settingsState.developerMode,
-        onDismiss = { callbacks.onDismissConsole() },
-        onClear = { callbacks.onClearConsole() },
-        onLogcatTabSelected = { callbacks.onStartLogcat() },
-        onLogcatTabDeselected = { callbacks.onStopLogcat() }
-    )
 
     DialogOrchestrator(
         dialogState = dialogsState.dialogState,
@@ -737,5 +723,27 @@ private fun TabSwitcherOverlay(
         onTabClosed = { callbacks.onCloseTab(it) },
         onNewTab = { callbacks.onNewTab() },
         onDismiss = onDismiss
+    )
+}
+
+/**
+ * Isolated recomposition scope for the console bottom sheet.
+ * Reading consoleEntries/consoleErrorCount here avoids triggering
+ * recomposition of BrowserScreen and BrowserScaffold on every new log entry.
+ */
+@Composable
+private fun ConsoleOverlay(
+    viewModel: BrowserViewModel,
+    callbacks: BrowserCallbacks
+) {
+    ConsoleSheet(
+        visible = viewModel.panelState.showConsole,
+        entries = viewModel.consoleEntries,
+        errorCount = viewModel.consoleErrorCount,
+        developerMode = viewModel.settingsState.developerMode,
+        onDismiss = { callbacks.onDismissConsole() },
+        onClear = { callbacks.onClearConsole() },
+        onLogcatTabSelected = { callbacks.onStartLogcat() },
+        onLogcatTabDeselected = { callbacks.onStopLogcat() }
     )
 }
