@@ -160,6 +160,10 @@ class BrowserCallbacksImpl(
     override fun onSuggestionsDismiss() = viewModel.dismissSuggestions()
     override fun onTabSessionStateChanged() = viewModel.onTabSessionStateChanged()
 
+    // ConsoleCallbacks
+    override fun onToggleConsole() = viewModel.toggleConsole()
+    override fun onClearConsole() = viewModel.clearConsole()
+
     // LinkContextCallbacks
     override fun onCopyLink(url: String) = viewModel.copyLinkToClipboard(url)
     override fun onLoadEmbeddedMedia(itemId: Int) = viewModel.loadEmbeddedMedia(itemId)

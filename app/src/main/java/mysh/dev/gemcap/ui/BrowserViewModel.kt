@@ -27,6 +27,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import mysh.dev.gemcap.data.BrowserRepository
+import mysh.dev.gemcap.ui.managers.ConsoleManager
+import mysh.dev.gemcap.ui.managers.LogcatReader
 import mysh.dev.gemcap.data.ClientCertRepository
 import mysh.dev.gemcap.media.GemcapPlayerManager
 import java.io.File
@@ -96,7 +98,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private val certRepository = ClientCertRepository(application)
-    private val client = GeminiClient(application, certRepository.getIdentityStorage())
+    private val consoleManager = ConsoleManager(
+        getPanelState = { panelState },
+        updatePanelState = { panelState = it }
+    )
+    private val logcatReader = LogcatReader(
+        logger = consoleManager,
+        scope = viewModelScope
+    )
+    private val client = GeminiClient(application, certRepository.getIdentityStorage(), consoleLogger = consoleManager)
     private val repository = BrowserRepository(application)
     private val settingsRepository = SettingsRepository(application)
     private val certGenerator = CertificateGenerator(certRepository.getIdentityStorage(), certRepository)
@@ -188,6 +198,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     val bookmarks: ImmutableList<Bookmark> get() = bookmarkManager.bookmarks
     val history: ImmutableList<HistoryEntry> get() = historyManager.history
     val isCurrentPageBookmarked: Boolean get() = bookmarkManager.isCurrentPageBookmarked
+    val consoleEntries get() = consoleManager.entries
+    val consoleErrorCount get() = consoleManager.errorCount
 
     val hasActiveIdentityForCurrentUrl: Boolean
         get() = activeTab?.url?.let { url: String -> certificateManager.hasActiveIdentityForUrl(url) }
@@ -257,8 +269,23 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    // Console
+    fun toggleConsole() {
+        if (panelState.showConsole) {
+            consoleManager.dismissConsole()
+            logcatReader.stop()
+        } else {
+            consoleManager.showConsole()
+        }
+    }
+
+    fun clearConsole() = consoleManager.clear()
+    fun startLogcat() = logcatReader.start()
+    fun stopLogcat() = logcatReader.stop()
+
     override fun onCleared() {
         super.onCleared()
+        logcatReader.stop()
         playerManager.release()
         // Clean up temp media files
         File(getApplication<Application>().cacheDir, "media").deleteRecursively()

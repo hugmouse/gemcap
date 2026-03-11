@@ -140,6 +140,11 @@ interface LinkContextCallbacks {
     fun onDownloadEmbeddedMedia(url: String, data: StableByteArray?, dataFilePath: String?, mimeType: String)
 }
 
+interface ConsoleCallbacks {
+    fun onToggleConsole()
+    fun onClearConsole()
+}
+
 interface BrowserCallbacks :
     NavigationCallbacks,
     TabCallbacks,
@@ -152,4 +157,5 @@ interface BrowserCallbacks :
     MenuCallbacks,
     AutocompleteCallbacks,
     SessionCallbacks,
-    LinkContextCallbacks
+    LinkContextCallbacks,
+    ConsoleCallbacks
