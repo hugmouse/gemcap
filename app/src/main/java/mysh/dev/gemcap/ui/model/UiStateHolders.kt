@@ -97,7 +97,8 @@ data class PanelState(
     val showSettings: Boolean = false,
     val showCertificateGeneration: Boolean = false,
     val showCertificateManagement: Boolean = false,
-    val showIdentityMenu: Boolean = false
+    val showIdentityMenu: Boolean = false,
+    val showConsole: Boolean = false
 )
 
 /**
