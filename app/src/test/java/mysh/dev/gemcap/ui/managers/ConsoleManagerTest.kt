@@ -4,6 +4,7 @@ import mysh.dev.gemcap.domain.ConsoleCategory
 import mysh.dev.gemcap.domain.ConsoleLevel
 import mysh.dev.gemcap.ui.model.PanelState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -80,6 +81,6 @@ class ConsoleManagerTest {
         manager.showConsole()
         assertTrue(panelState.showConsole)
         manager.dismissConsole()
-        assertTrue(!panelState.showConsole)
+        assertFalse(panelState.showConsole)
     }
 }

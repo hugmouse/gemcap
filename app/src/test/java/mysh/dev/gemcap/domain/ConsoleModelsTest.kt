@@ -2,6 +2,7 @@ package mysh.dev.gemcap.domain
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConsoleModelsTest {
@@ -40,18 +41,18 @@ class ConsoleModelsTest {
     fun `all categories exist`() {
         val categories = ConsoleCategory.entries
         assertEquals(4, categories.size)
-        assert(ConsoleCategory.NETWORK in categories)
-        assert(ConsoleCategory.ERROR in categories)
-        assert(ConsoleCategory.SECURITY in categories)
-        assert(ConsoleCategory.LOGCAT in categories)
+        assertTrue(ConsoleCategory.NETWORK in categories)
+        assertTrue(ConsoleCategory.ERROR in categories)
+        assertTrue(ConsoleCategory.SECURITY in categories)
+        assertTrue(ConsoleCategory.LOGCAT in categories)
     }
 
     @Test
     fun `all levels exist`() {
         val levels = ConsoleLevel.entries
         assertEquals(3, levels.size)
-        assert(ConsoleLevel.INFO in levels)
-        assert(ConsoleLevel.WARNING in levels)
-        assert(ConsoleLevel.ERROR in levels)
+        assertTrue(ConsoleLevel.INFO in levels)
+        assertTrue(ConsoleLevel.WARNING in levels)
+        assertTrue(ConsoleLevel.ERROR in levels)
     }
 }
