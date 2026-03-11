@@ -3,6 +3,7 @@ package mysh.dev.gemcap.network
 import android.content.Context
 import android.util.Log
 import androidx.core.content.edit
+import mysh.dev.gemcap.domain.ConsoleLogger
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.asn1.x500.style.BCStyle
 import java.security.cert.CertificateException
@@ -48,7 +49,10 @@ sealed class TofuResult {
     It is likely to disable certificate validation altogether, and is non-trivial
     to implement correctly without calling Android's default implementation.
  */
-class TofuTrustManager(private val context: Context) : X509TrustManager {
+class TofuTrustManager(
+    private val context: Context,
+    private val consoleLogger: ConsoleLogger = ConsoleLogger.NoOp
+) : X509TrustManager {
 
     private val sharedPreferences = context.getSharedPreferences("tofu_certs", Context.MODE_PRIVATE)
 
