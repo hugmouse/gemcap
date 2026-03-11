@@ -162,7 +162,10 @@ class BrowserCallbacksImpl(
 
     // ConsoleCallbacks
     override fun onToggleConsole() = viewModel.toggleConsole()
+    override fun onDismissConsole() = viewModel.dismissConsole()
     override fun onClearConsole() = viewModel.clearConsole()
+    override fun onStartLogcat() = viewModel.startLogcat()
+    override fun onStopLogcat() = viewModel.stopLogcat()
 
     // LinkContextCallbacks
     override fun onCopyLink(url: String) = viewModel.copyLinkToClipboard(url)

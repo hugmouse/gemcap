@@ -142,7 +142,10 @@ interface LinkContextCallbacks {
 
 interface ConsoleCallbacks {
     fun onToggleConsole()
+    fun onDismissConsole()
     fun onClearConsole()
+    fun onStartLogcat()
+    fun onStopLogcat()
 }
 
 interface BrowserCallbacks :

@@ -81,11 +81,13 @@ import mysh.dev.gemcap.BuildConfig
 import mysh.dev.gemcap.data.FontSize
 import mysh.dev.gemcap.data.SearchEngine
 import mysh.dev.gemcap.data.ThemeMode
+import mysh.dev.gemcap.domain.ConsoleEntry
 import mysh.dev.gemcap.domain.GeminiContent
 import mysh.dev.gemcap.R
 import mysh.dev.gemcap.domain.GeminiError
 import mysh.dev.gemcap.ui.callbacks.BrowserCallbacks
 import mysh.dev.gemcap.ui.callbacks.BrowserCallbacksImpl
+import mysh.dev.gemcap.ui.console.ConsoleSheet
 import mysh.dev.gemcap.ui.components.ControlBar
 import mysh.dev.gemcap.ui.components.DialogOrchestrator
 import mysh.dev.gemcap.ui.components.TopTabStrip
@@ -249,7 +251,9 @@ fun BrowserScreen(
         onDismissTabSwitcher = { showTabSwitcher = false },
         snackbarHostState = snackbarHostState,
         callbacks = callbacks,
-        playerManager = viewModel.playerManager
+        playerManager = viewModel.playerManager,
+        consoleEntries = viewModel.consoleEntries,
+        consoleErrorCount = viewModel.consoleErrorCount
     )
 }
 
@@ -266,7 +270,9 @@ private fun BrowserScaffold(
     onDismissTabSwitcher: () -> Unit,
     snackbarHostState: SnackbarHostState,
     callbacks: BrowserCallbacks,
-    playerManager: GemcapPlayerManager
+    playerManager: GemcapPlayerManager,
+    consoleEntries: ImmutableList<ConsoleEntry>,
+    consoleErrorCount: Int
 ) {
     logRecomposition { ">>> BrowserScaffold" }
 
@@ -331,6 +337,17 @@ private fun BrowserScaffold(
             callbacks = callbacks
         )
     }
+
+    ConsoleSheet(
+        visible = panelState.showConsole,
+        entries = consoleEntries,
+        errorCount = consoleErrorCount,
+        developerMode = dialogsState.settingsState.developerMode,
+        onDismiss = { callbacks.onDismissConsole() },
+        onClear = { callbacks.onClearConsole() },
+        onLogcatTabSelected = { callbacks.onStartLogcat() },
+        onLogcatTabDeselected = { callbacks.onStopLogcat() }
+    )
 
     DialogOrchestrator(
         dialogState = dialogsState.dialogState,

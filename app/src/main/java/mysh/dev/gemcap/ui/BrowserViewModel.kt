@@ -279,6 +279,11 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun dismissConsole() {
+        consoleManager.dismissConsole()
+        logcatReader.stop()
+    }
+
     fun clearConsole() = consoleManager.clear()
     fun startLogcat() = logcatReader.start()
     fun stopLogcat() = logcatReader.stop()
