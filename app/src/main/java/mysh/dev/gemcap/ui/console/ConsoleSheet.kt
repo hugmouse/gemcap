@@ -30,7 +30,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -88,14 +87,14 @@ fun ConsolePanel(
         modifier = modifier
             .fillMaxWidth()
             .height(panelHeight)
-            .background(Color(0xFF1E1E2E))
+            .background(ConsoleColors.background)
     ) {
         // Drag handle to resize
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(8.dp)
-                .background(Color(0xFF333333))
+                .background(ConsoleColors.divider)
                 .draggable(
                     orientation = Orientation.Vertical,
                     state = rememberDraggableState { delta ->
@@ -110,7 +109,7 @@ fun ConsolePanel(
                 modifier = Modifier
                     .width(32.dp)
                     .height(3.dp)
-                    .background(Color(0xFF666666), RoundedCornerShape(1.5.dp))
+                    .background(ConsoleColors.subtle, RoundedCornerShape(1.5.dp))
             )
         }
 
@@ -124,7 +123,7 @@ fun ConsolePanel(
         ) {
             Text(
                 text = "Console",
-                color = Color(0xFFE0E0E0),
+                color = ConsoleColors.textBright,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold
             )
@@ -133,14 +132,14 @@ fun ConsolePanel(
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "Clear console",
-                        tint = Color(0xFF888888)
+                        tint = ConsoleColors.muted
                     )
                 }
                 IconButton(onClick = onClose) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close console",
-                        tint = Color(0xFF888888)
+                        tint = ConsoleColors.muted
                     )
                 }
             }
@@ -198,7 +197,7 @@ fun ConsolePanel(
                     ) {
                         Text(
                             text = "No entries",
-                            color = Color(0xFF666666),
+                            color = ConsoleColors.subtle,
                             fontSize = 13.sp,
                             fontFamily = FontFamily.Monospace
                         )

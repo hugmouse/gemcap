@@ -45,10 +45,10 @@ fun ConsoleTabBar(
     ScrollableTabRow(
         selectedTabIndex = tabs.indexOf(selectedTab).coerceAtLeast(0),
         modifier = modifier,
-        containerColor = Color(0xFF1E1E2E),
-        contentColor = Color(0xFF82AAFF),
+        containerColor = ConsoleColors.background,
+        contentColor = ConsoleColors.accent,
         edgePadding = 8.dp,
-        divider = { HorizontalDivider(color = Color(0xFF333333)) }
+        divider = { HorizontalDivider(color = ConsoleColors.divider) }
     ) {
         tabs.forEach { tab ->
             Tab(
@@ -59,7 +59,7 @@ fun ConsoleTabBar(
                         BadgedBox(
                             badge = {
                                 Badge(
-                                    containerColor = Color(0xFFFF5252),
+                                    containerColor = ConsoleColors.error,
                                     contentColor = Color.White
                                 ) {
                                     Text(
@@ -75,7 +75,7 @@ fun ConsoleTabBar(
                         Text(tab.label)
                     }
                 },
-                unselectedContentColor = Color(0xFF888888)
+                unselectedContentColor = ConsoleColors.muted
             )
         }
     }

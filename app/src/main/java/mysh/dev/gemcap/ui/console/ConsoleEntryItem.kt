@@ -13,7 +13,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,9 +34,9 @@ fun ConsoleEntryItem(
     val hasDetail = entry.detail != null
 
     val titleColor = when (entry.level) {
-        ConsoleLevel.ERROR -> Color(0xFFFF5252)
-        ConsoleLevel.WARNING -> Color(0xFFFFB74D)
-        ConsoleLevel.INFO -> Color(0xFFCCCCCC)
+        ConsoleLevel.ERROR -> ConsoleColors.error
+        ConsoleLevel.WARNING -> ConsoleColors.warning
+        ConsoleLevel.INFO -> ConsoleColors.text
     }
 
     Column(
@@ -61,7 +60,7 @@ fun ConsoleEntryItem(
         AnimatedVisibility(visible = expanded && hasDetail) {
             Text(
                 text = entry.detail.orEmpty(),
-                color = Color(0xFF999999),
+                color = ConsoleColors.textSecondary,
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
                 lineHeight = 14.sp,
@@ -70,5 +69,5 @@ fun ConsoleEntryItem(
         }
     }
 
-    HorizontalDivider(color = Color(0xFF2A2A3A), thickness = 0.5.dp)
+    HorizontalDivider(color = ConsoleColors.surface, thickness = 0.5.dp)
 }

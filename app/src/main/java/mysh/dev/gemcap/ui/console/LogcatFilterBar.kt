@@ -14,11 +14,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 enum class LogLevel(val label: String, val color: Color) {
-    VERBOSE("V", Color(0xFF888888)),
-    DEBUG("D", Color(0xFF82AAFF)),
-    INFO("I", Color(0xFF4CAF50)),
-    WARN("W", Color(0xFFFFB74D)),
-    ERROR("E", Color(0xFFFF5252))
+    VERBOSE("V", ConsoleColors.muted),
+    DEBUG("D", ConsoleColors.accent),
+    INFO("I", ConsoleColors.info),
+    WARN("W", ConsoleColors.warning),
+    ERROR("E", ConsoleColors.error)
 }
 
 @Composable
@@ -39,13 +39,13 @@ fun LogcatFilterBar(
                 onClick = { onToggleLevel(level) },
                 label = { Text(level.label) },
                 colors = FilterChipDefaults.filterChipColors(
-                    containerColor = Color(0xFF2A2A3A),
+                    containerColor = ConsoleColors.surface,
                     selectedContainerColor = level.color.copy(alpha = 0.2f),
-                    labelColor = Color(0xFF888888),
+                    labelColor = ConsoleColors.muted,
                     selectedLabelColor = level.color
                 ),
                 border = FilterChipDefaults.filterChipBorder(
-                    borderColor = Color(0xFF333333),
+                    borderColor = ConsoleColors.divider,
                     selectedBorderColor = level.color.copy(alpha = 0.5f),
                     enabled = true,
                     selected = level in enabledLevels
