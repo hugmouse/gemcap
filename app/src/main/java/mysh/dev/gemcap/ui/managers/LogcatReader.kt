@@ -24,6 +24,7 @@ class LogcatReader(
         if (readJob?.isActive == true) return
         val pid = android.os.Process.myPid()
         readJob = scope.launch(Dispatchers.IO) {
+            val currentJob = coroutineContext[Job]
             var proc: Process? = null
             var reader: BufferedReader? = null
             try {
@@ -47,8 +48,12 @@ class LogcatReader(
             } finally {
                 reader?.close()
                 proc?.destroyForcibly()
-                process = null
-                readJob = null
+                if (process === proc) {
+                    process = null
+                }
+                if (readJob === currentJob) {
+                    readJob = null
+                }
             }
         }
     }
