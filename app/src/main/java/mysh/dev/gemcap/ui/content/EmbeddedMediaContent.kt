@@ -51,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -718,21 +719,7 @@ private fun LoadedVideoMediaCard(
     // Pause video when app goes to background; audio is intentionally allowed
     // to continue playing in the background via MediaSessionService
     if (isActiveItem) {
-        val lifecycleOwner = LocalLifecycleOwner.current
-        val mediaKey = item.id.toString()
-        DisposableEffect(lifecycleOwner) {
-            val observer = LifecycleEventObserver { _, event ->
-                if (event == Lifecycle.Event.ON_STOP &&
-                    playerManager.currentMediaKey == mediaKey
-                ) {
-                    playerManager.player?.pause()
-                }
-            }
-            lifecycleOwner.lifecycle.addObserver(observer)
-            onDispose {
-                lifecycleOwner.lifecycle.removeObserver(observer)
-            }
-        }
+        PauseOnBackgroundEffect(playerManager, item.id.toString())
     }
 
     Box {
@@ -753,40 +740,7 @@ private fun LoadedVideoMediaCard(
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             // Video surface — only attach when this is the active item
-            if (player != null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(16f / 9f)
-                        .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
-                        .background(MaterialTheme.colorScheme.scrim),
-                    contentAlignment = Alignment.Center
-                ) {
-                    ContentFrame(
-                        player = player,
-                        surfaceType = SURFACE_TYPE_SURFACE_VIEW,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-            } else {
-                // Not the active item — show a play overlay
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(16f / 9f)
-                        .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
-                        .background(MaterialTheme.colorScheme.scrim)
-                        .clickable { onPlayMedia(item.id) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayCircle,
-                        contentDescription = stringResource(R.string.embedded_media_action_load_video),
-                        modifier = Modifier.size(56.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                    )
-                }
-            }
+            VideoSurface(player = player, onPlayMedia = { onPlayMedia(item.id) })
 
             // Info and controls below video
             Column(
@@ -826,24 +780,8 @@ private fun LoadedVideoMediaCard(
                 }
 
                 // Controls — only for active item
-                CompositionLocalProvider(LocalContentColor provides styles.bodyColor) {
-                    if (player != null) {
-                        PlayerProgressSlider(
-                            player = player,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            PlayPauseButton(player, modifier = Modifier.size(40.dp))
-                            PlayerPositionDurationText(
-                                player = player,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
+                if (player != null) {
+                    VideoControls(player = player, contentColor = styles.bodyColor)
                 }
 
                 // Error display
@@ -874,6 +812,83 @@ private fun LoadedVideoMediaCard(
                 )
             }
         )
+    }
+}
+
+@Composable
+private fun PauseOnBackgroundEffect(playerManager: GemcapPlayerManager, mediaKey: String) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP &&
+                playerManager.currentMediaKey == mediaKey
+            ) {
+                playerManager.player?.pause()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+private fun VideoSurface(player: Player?, onPlayMedia: () -> Unit) {
+    if (player != null) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                .background(MaterialTheme.colorScheme.scrim),
+            contentAlignment = Alignment.Center
+        ) {
+            ContentFrame(
+                player = player,
+                surfaceType = SURFACE_TYPE_SURFACE_VIEW,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    } else {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                .background(MaterialTheme.colorScheme.scrim)
+                .clickable { onPlayMedia() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.PlayCircle,
+                contentDescription = stringResource(R.string.embedded_media_action_load_video),
+                modifier = Modifier.size(56.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun VideoControls(player: Player, contentColor: Color) {
+    CompositionLocalProvider(LocalContentColor provides contentColor) {
+        PlayerProgressSlider(
+            player = player,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            PlayPauseButton(player, modifier = Modifier.size(40.dp))
+            PlayerPositionDurationText(
+                player = player,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 
