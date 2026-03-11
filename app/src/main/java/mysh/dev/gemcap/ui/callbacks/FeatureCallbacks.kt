@@ -116,6 +116,7 @@ interface SettingsCallbacks {
     fun onSearchEngineChange(engine: SearchEngine)
     fun onHomePageChange(url: String)
     fun onSetAsHomePage()
+    fun onDeveloperModeChange(enabled: Boolean)
 }
 
 interface MenuCallbacks {

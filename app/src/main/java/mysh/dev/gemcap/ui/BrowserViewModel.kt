@@ -1004,6 +1004,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun updateFontSize(size: FontSize) = settingsManager.updateFontSize(size)
     fun updateSearchEngine(engine: SearchEngine) = settingsManager.updateSearchEngine(engine)
     fun setHomePage(url: String) = settingsManager.setHomePage(url)
+    fun updateDeveloperMode(enabled: Boolean) {
+        settingsManager.updateDeveloperMode(enabled)
+    }
 
     // Image handling
     fun openImageInNewTab(imageUrl: String) {

@@ -56,6 +56,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_FONT_SIZE = "font_size"
         private const val KEY_SEARCH_ENGINE = "search_engine"
+        private const val KEY_DEVELOPER_MODE = "developer_mode"
         private const val KEY_TAB_SESSION = "tab_session"
         internal fun parseTabSession(rawSession: String): TabSession? {
             return try {
@@ -173,6 +174,11 @@ class SettingsRepository(context: Context) {
         }
         set(value) {
             prefs.edit { putInt(KEY_SEARCH_ENGINE, value.ordinal) }
+        }
+    var developerMode: Boolean
+        get() = prefs.getBoolean(KEY_DEVELOPER_MODE, false)
+        set(value) {
+            prefs.edit { putBoolean(KEY_DEVELOPER_MODE, value) }
         }
     var tabSession: TabSession?
         get() {

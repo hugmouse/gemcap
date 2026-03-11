@@ -31,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -59,6 +60,8 @@ fun SettingsScreen(
     onFontSizeChange: (FontSize) -> Unit,
     onSearchEngineChange: (SearchEngine) -> Unit,
     onHomePageChange: (String) -> Unit,
+    developerMode: Boolean = false,
+    onDeveloperModeChange: (Boolean) -> Unit = {},
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -244,6 +247,34 @@ fun SettingsScreen(
                         ) {
                             Text("Save")
                         }
+                    }
+                }
+
+                HorizontalDivider()
+                SettingsSection(title = "Developer") {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { onDeveloperModeChange(!developerMode) }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = "Developer mode",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Text(
+                                text = "Show Logcat tab in console",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = developerMode,
+                            onCheckedChange = { onDeveloperModeChange(it) }
+                        )
                     }
                 }
             }

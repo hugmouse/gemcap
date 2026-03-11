@@ -211,6 +211,8 @@ fun DialogOrchestrator(
             onFontSizeChange = { callbacks.onFontSizeChange(it) },
             onSearchEngineChange = { callbacks.onSearchEngineChange(it) },
             onHomePageChange = { callbacks.onHomePageChange(it) },
+            developerMode = settingsState.developerMode,
+            onDeveloperModeChange = { callbacks.onDeveloperModeChange(it) },
             onDismiss = { callbacks.onDismissSettings() }
         )
     }

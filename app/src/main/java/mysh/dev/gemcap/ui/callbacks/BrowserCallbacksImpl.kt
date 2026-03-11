@@ -149,6 +149,7 @@ class BrowserCallbacksImpl(
 
     override fun onHomePageChange(url: String) = viewModel.setHomePage(url)
     override fun onSetAsHomePage() = viewModel.setCurrentPageAsHome()
+    override fun onDeveloperModeChange(enabled: Boolean) = viewModel.updateDeveloperMode(enabled)
 
     // MenuCallbacks
     override fun onShowMenu() = viewModel.showMenuDropdown()

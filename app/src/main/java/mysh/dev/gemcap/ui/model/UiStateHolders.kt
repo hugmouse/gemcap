@@ -118,7 +118,8 @@ data class SettingsState(
     val themeMode: ThemeMode,
     val fontSize: FontSize,
     val homePage: String,
-    val searchEngine: SearchEngine
+    val searchEngine: SearchEngine,
+    val developerMode: Boolean = false
 )
 
 /**
