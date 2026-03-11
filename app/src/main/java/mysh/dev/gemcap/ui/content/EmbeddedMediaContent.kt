@@ -85,6 +85,7 @@ fun EmbeddedMediaContent(
     item: GeminiContent.EmbeddedMedia,
     styles: CachedTextStyles,
     playerManager: GemcapPlayerManager,
+    activeTabId: String,
     onLoadMedia: (Int) -> Unit,
     onPlayMedia: (Int) -> Unit,
     onCollapseMedia: (Int) -> Unit,
@@ -113,6 +114,7 @@ fun EmbeddedMediaContent(
                 item = item,
                 styles = styles,
                 playerManager = playerManager,
+                activeTabId = activeTabId,
                 onPlayMedia = onPlayMedia,
                 onCollapseMedia = onCollapseMedia,
                 onOpenInNewTab = onOpenInNewTab,
@@ -335,6 +337,7 @@ private fun LoadedMediaCard(
     item: GeminiContent.EmbeddedMedia,
     styles: CachedTextStyles,
     playerManager: GemcapPlayerManager,
+    activeTabId: String,
     onPlayMedia: (Int) -> Unit,
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
@@ -362,6 +365,7 @@ private fun LoadedMediaCard(
             item = item,
             styles = styles,
             playerManager = playerManager,
+            activeTabId = activeTabId,
             onPlayMedia = onPlayMedia,
             onCollapseMedia = onCollapseMedia,
             onOpenInNewTab = onOpenInNewTab,
@@ -376,6 +380,7 @@ private fun LoadedMediaCard(
             item = item,
             styles = styles,
             playerManager = playerManager,
+            activeTabId = activeTabId,
             onPlayMedia = onPlayMedia,
             onCollapseMedia = onCollapseMedia,
             onOpenInNewTab = onOpenInNewTab,
@@ -543,6 +548,7 @@ private fun LoadedAudioMediaCard(
     item: GeminiContent.EmbeddedMedia,
     styles: CachedTextStyles,
     playerManager: GemcapPlayerManager,
+    activeTabId: String,
     onPlayMedia: (Int) -> Unit,
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
@@ -555,7 +561,8 @@ private fun LoadedAudioMediaCard(
     val name = item.linkText.takeIf { it.isNotBlank() }
         ?: item.url.substringAfterLast("/").ifEmpty { audioLabel }
 
-    val isActiveItem = playerManager.currentMediaKey == item.id.toString()
+    val mediaKey = "${activeTabId}:${item.id}"
+    val isActiveItem = playerManager.currentMediaKey == mediaKey
     val player = if (isActiveItem) playerManager.player else null
     val sizeText = calculateSizeText(item)
 
@@ -676,6 +683,7 @@ private fun LoadedVideoMediaCard(
     item: GeminiContent.EmbeddedMedia,
     styles: CachedTextStyles,
     playerManager: GemcapPlayerManager,
+    activeTabId: String,
     onPlayMedia: (Int) -> Unit,
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
@@ -689,7 +697,8 @@ private fun LoadedVideoMediaCard(
     val name = item.linkText.takeIf { it.isNotBlank() }
         ?: item.url.substringAfterLast("/").ifEmpty { videoLabel }
 
-    val isActiveItem = playerManager.currentMediaKey == item.id.toString()
+    val mediaKey = "${activeTabId}:${item.id}"
+    val isActiveItem = playerManager.currentMediaKey == mediaKey
     val player = if (isActiveItem) playerManager.player else null
     val sizeText = calculateSizeText(item)
 
@@ -698,7 +707,7 @@ private fun LoadedVideoMediaCard(
     // Pause video when app goes to background; audio is intentionally allowed
     // to continue playing in the background via MediaSessionService
     if (isActiveItem) {
-        PauseOnBackgroundEffect(playerManager, item.id.toString())
+        PauseOnBackgroundEffect(playerManager, mediaKey)
     }
 
     Box {

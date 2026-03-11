@@ -18,7 +18,8 @@ class ContentActions(
     val onCollapseEmbeddedMedia: (Int) -> Unit,
     val onDownloadEmbeddedMedia: (String, StableByteArray?, String?, String) -> Unit,
     val playerManager: GemcapPlayerManager,
-    val onFullscreen: (Player) -> Unit
+    val onFullscreen: (Player) -> Unit,
+    val activeTabId: String
 )
 
 /**
@@ -52,6 +53,7 @@ fun ContentItem(
             item = item,
             styles = styles,
             playerManager = actions.playerManager,
+            activeTabId = actions.activeTabId,
             onLoadMedia = actions.onLoadEmbeddedMedia,
             onPlayMedia = actions.onPlayEmbeddedMedia,
             onCollapseMedia = actions.onCollapseEmbeddedMedia,

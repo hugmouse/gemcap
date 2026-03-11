@@ -292,7 +292,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         loadingJobs[tabId]?.cancel()
         loadingJobs.remove(tabId)
         cancelEmbeddedMediaJobsForTab(tabId)
-        if (tabId == activeTabId) {
+        if (playerManager.currentMediaKey?.startsWith("${tabId}:") == true) {
             playerManager.release()
         }
         tabManager.tabs.find { it.id == tabId }?.let { cleanupTempMediaFiles(it) }
@@ -1363,7 +1363,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     if (updated) {
                         // Auto-play when media finishes loading
                         withContext(Dispatchers.Main) {
-                            playerManager.playFromFile(tempFile, resolvedMimeType, itemId.toString())
+                            playerManager.playFromFile(tempFile, resolvedMimeType, "${tab.id}:${itemId}")
                         }
                     } else {
                         tempFile.delete()
@@ -1452,7 +1452,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                     val mediaType = resolvedMimeType.substringBefore("/")
                     if (mediaType == "audio" || mediaType == "video") {
                         withContext(Dispatchers.Main) {
-                            playerManager.play(data, resolvedMimeType, itemId.toString())
+                            playerManager.play(data, resolvedMimeType, "${tab.id}:${itemId}")
                         }
                     }
                 }
@@ -1483,10 +1483,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
         val filePath = media.dataFilePath
         if (filePath != null) {
-            playerManager.playFromFile(File(filePath), media.mimeType, itemId.toString())
+            playerManager.playFromFile(File(filePath), media.mimeType, "${tab.id}:${itemId}")
         } else {
             val data = media.data?.bytes ?: return
-            playerManager.play(data, media.mimeType, itemId.toString())
+            playerManager.play(data, media.mimeType, "${tab.id}:${itemId}")
         }
     }
 
@@ -1496,7 +1496,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val media = tab.content.firstOrNull {
             it is GeminiContent.EmbeddedMedia && it.id == itemId
         } as? GeminiContent.EmbeddedMedia
-        if (media != null && playerManager.currentMediaKey == media.id.toString()) {
+        if (media != null && playerManager.currentMediaKey == "${tab.id}:${media.id}") {
             playerManager.release()
         }
         media?.dataFilePath?.let { path ->

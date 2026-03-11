@@ -613,7 +613,7 @@ private fun GeminiContentList(
         }
     }
 
-    val contentActions = remember(callbacks, playerManager) {
+    val contentActions = remember(callbacks, playerManager, tab.id) {
         ContentActions(
             onLinkClick = callbacks::onLinkClick,
             onOpenImageInNewTab = callbacks::onOpenImageInNewTab,
@@ -624,7 +624,8 @@ private fun GeminiContentList(
             onCollapseEmbeddedMedia = callbacks::onCollapseEmbeddedMedia,
             onDownloadEmbeddedMedia = callbacks::onDownloadEmbeddedMedia,
             playerManager = playerManager,
-            onFullscreen = onFullscreen
+            onFullscreen = onFullscreen,
+            activeTabId = tab.id
         )
     }
 
