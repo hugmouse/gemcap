@@ -1,0 +1,205 @@
+package mysh.dev.gemcap.ui.console
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.coroutines.launch
+import mysh.dev.gemcap.domain.ConsoleCategory
+import mysh.dev.gemcap.domain.ConsoleEntry
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ConsoleSheet(
+    visible: Boolean,
+    entries: ImmutableList<ConsoleEntry>,
+    errorCount: Int,
+    developerMode: Boolean,
+    onDismiss: () -> Unit,
+    onClear: () -> Unit,
+    onLogcatTabSelected: () -> Unit,
+    onLogcatTabDeselected: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (!visible) return
+
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = false
+    )
+    val scope = rememberCoroutineScope()
+
+    var selectedTab by remember { mutableStateOf(ConsoleTab.ALL) }
+    var logcatLevels by remember { mutableStateOf(LogLevel.entries.toSet()) }
+
+    val filteredEntries = remember(entries, selectedTab, logcatLevels) {
+        when (selectedTab) {
+            ConsoleTab.ALL -> entries.filter { it.category != ConsoleCategory.LOGCAT }
+            ConsoleTab.NETWORK -> entries.filter { it.category == ConsoleCategory.NETWORK }
+            ConsoleTab.ERRORS -> entries.filter { it.category == ConsoleCategory.ERROR }
+            ConsoleTab.SECURITY -> entries.filter { it.category == ConsoleCategory.SECURITY }
+            ConsoleTab.LOGCAT -> entries.filter { entry ->
+                entry.category == ConsoleCategory.LOGCAT && logcatLevels.any { level ->
+                    entry.title.startsWith("[${level.label}/")
+                }
+            }
+        }
+    }
+
+    val listState = rememberLazyListState()
+
+    // Auto-scroll to bottom when new entries arrive and user is near the bottom
+    LaunchedEffect(filteredEntries.size) {
+        if (filteredEntries.isNotEmpty()) {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val totalItems = listState.layoutInfo.totalItemsCount
+            if (totalItems == 0 || lastVisible >= totalItems - 3) {
+                listState.animateScrollToItem(filteredEntries.size - 1)
+            }
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color(0xFF1E1E2E),
+        contentColor = Color(0xFFCCCCCC),
+        scrimColor = Color.Transparent,
+        dragHandle = {
+            BottomSheetDefaults.DragHandle(color = Color(0xFF555555))
+        },
+        contentWindowInsets = { WindowInsets(0) },
+        modifier = modifier
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Console",
+                    color = Color(0xFFE0E0E0),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onClear) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Clear console",
+                            tint = Color(0xFF888888)
+                        )
+                    }
+                    IconButton(onClick = {
+                        scope.launch {
+                            sheetState.hide()
+                            onDismiss()
+                        }
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close console",
+                            tint = Color(0xFF888888)
+                        )
+                    }
+                }
+            }
+
+            // Tab bar
+            ConsoleTabBar(
+                selectedTab = selectedTab,
+                errorCount = errorCount,
+                developerMode = developerMode,
+                onTabSelected = { tab ->
+                    val wasLogcat = selectedTab == ConsoleTab.LOGCAT
+                    val isLogcat = tab == ConsoleTab.LOGCAT
+                    selectedTab = tab
+                    if (isLogcat && !wasLogcat) onLogcatTabSelected()
+                    if (!isLogcat && wasLogcat) onLogcatTabDeselected()
+                }
+            )
+
+            // Logcat level filter
+            if (selectedTab == ConsoleTab.LOGCAT) {
+                LogcatFilterBar(
+                    enabledLevels = logcatLevels,
+                    onToggleLevel = { level ->
+                        logcatLevels = if (level in logcatLevels) {
+                            logcatLevels - level
+                        } else {
+                            logcatLevels + level
+                        }
+                    }
+                )
+            }
+
+            // Entry list
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                items(
+                    items = filteredEntries,
+                    key = { it.id }
+                ) { entry ->
+                    ConsoleEntryItem(entry = entry)
+                }
+
+                if (filteredEntries.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "No entries",
+                                color = Color(0xFF666666),
+                                fontSize = 13.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
