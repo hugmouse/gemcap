@@ -33,6 +33,7 @@ class LogcatReader(
                 while (isActive) {
                     val line = reader.readLine() ?: break
                     val parsed = parseLine(line) ?: continue
+                    if (parsed.tag in NOISY_TAGS) continue
                     logger.log(
                         category = ConsoleCategory.LOGCAT,
                         level = mapLevel(parsed.level),
@@ -53,6 +54,18 @@ class LogcatReader(
     }
 
     companion object {
+        private val NOISY_TAGS = setOf(
+            "ViewRootImpl",
+            "InsetsController",
+            "InsetsSourceConsumer",
+            "InputTransport",
+            "Choreographer",
+            "OpenGLRenderer",
+            "RenderThread",
+            "ThreadedRenderer",
+            "HardwareRenderer",
+        )
+
         // Matches: "03-11 12:01:03.456  1234  5678 D TagName: message"
         private val LINE_REGEX = Regex(
             """^\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\s+\d+\s+\d+\s+([VDIWEF])\s+(\S+?)\s*:\s*(.*)$"""
