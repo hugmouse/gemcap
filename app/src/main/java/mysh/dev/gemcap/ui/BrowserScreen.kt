@@ -86,6 +86,7 @@ import mysh.dev.gemcap.R
 import mysh.dev.gemcap.domain.GeminiError
 import mysh.dev.gemcap.ui.callbacks.BrowserCallbacks
 import mysh.dev.gemcap.ui.callbacks.BrowserCallbacksImpl
+import mysh.dev.gemcap.ui.console.ConsolePanel
 import mysh.dev.gemcap.ui.components.ControlBar
 import mysh.dev.gemcap.ui.components.DialogOrchestrator
 import mysh.dev.gemcap.ui.components.TopTabStrip
@@ -249,7 +250,8 @@ fun BrowserScreen(
         onDismissTabSwitcher = { showTabSwitcher = false },
         snackbarHostState = snackbarHostState,
         callbacks = callbacks,
-        playerManager = viewModel.playerManager
+        playerManager = viewModel.playerManager,
+        consolePanel = { ConsoleContent(viewModel, callbacks) }
     )
 }
 
@@ -266,7 +268,8 @@ private fun BrowserScaffold(
     onDismissTabSwitcher: () -> Unit,
     snackbarHostState: SnackbarHostState,
     callbacks: BrowserCallbacks,
-    playerManager: GemcapPlayerManager
+    playerManager: GemcapPlayerManager,
+    consolePanel: @Composable () -> Unit
 ) {
     logRecomposition { ">>> BrowserScaffold" }
 
@@ -312,14 +315,24 @@ private fun BrowserScaffold(
             },
             snackbarHost = { SnackbarHost(snackbarHostState) }
         ) { innerPadding ->
-            BrowserContent(
-                activeTab = activeTab,
-                contentPadding = innerPadding,
-                searchState = contentState.searchState,
-                callbacks = callbacks,
-                playerManager = playerManager,
-                onFullscreen = { player -> fullscreenPlayer = player }
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .consumeWindowInsets(innerPadding)
+            ) {
+                BrowserContent(
+                    activeTab = activeTab,
+                    searchState = contentState.searchState,
+                    callbacks = callbacks,
+                    playerManager = playerManager,
+                    onFullscreen = { player -> fullscreenPlayer = player },
+                    modifier = Modifier.weight(1f)
+                )
+                if (panelState.showConsole) {
+                    consolePanel()
+                }
+            }
         }
     }
 
@@ -451,11 +464,11 @@ private fun ControlBarSection(
 @Composable
 private fun BrowserContent(
     activeTab: TabState?,
-    contentPadding: PaddingValues,
     searchState: SearchState,
     callbacks: BrowserCallbacks,
     playerManager: GemcapPlayerManager,
-    onFullscreen: (Player) -> Unit
+    onFullscreen: (Player) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     logRecomposition {
         ">>> BrowserContent (isLoading=${activeTab?.isLoading}, hasError=${activeTab?.error != null})"
@@ -464,10 +477,8 @@ private fun BrowserContent(
     val focusManager = LocalFocusManager.current
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
-            .padding(contentPadding)
-            .consumeWindowInsets(contentPadding)
             .pointerInput(Unit) {
                 detectTapGestures(
                     onTap = {
@@ -720,5 +731,26 @@ private fun TabSwitcherOverlay(
         onTabClosed = { callbacks.onCloseTab(it) },
         onNewTab = { callbacks.onNewTab() },
         onDismiss = onDismiss
+    )
+}
+
+/**
+ * Isolated recomposition scope for the console panel.
+ * Reading consoleEntries/consoleErrorCount here avoids triggering
+ * recomposition of BrowserScreen and BrowserScaffold on every new log entry.
+ */
+@Composable
+private fun ConsoleContent(
+    viewModel: BrowserViewModel,
+    callbacks: BrowserCallbacks
+) {
+    ConsolePanel(
+        entries = viewModel.consoleEntries,
+        errorCount = viewModel.consoleErrorCount,
+        developerMode = viewModel.settingsState.developerMode,
+        onClose = { callbacks.onDismissConsole() },
+        onClear = { callbacks.onClearConsole() },
+        onLogcatTabSelected = { callbacks.onStartLogcat() },
+        onLogcatTabDeselected = { callbacks.onStopLogcat() }
     )
 }

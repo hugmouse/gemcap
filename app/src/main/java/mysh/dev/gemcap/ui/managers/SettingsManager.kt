@@ -20,7 +20,8 @@ class SettingsManager(
             themeMode = settingsRepository.themeMode,
             fontSize = settingsRepository.fontSize,
             homePage = settingsRepository.homePage,
-            searchEngine = settingsRepository.searchEngine
+            searchEngine = settingsRepository.searchEngine,
+            developerMode = settingsRepository.developerMode
         )
     )
         private set
@@ -58,5 +59,10 @@ class SettingsManager(
     fun setCurrentPageAsHome(url: String) {
         settingsRepository.homePage = url
         settingsState = settingsState.copy(homePage = url)
+    }
+
+    fun updateDeveloperMode(enabled: Boolean) {
+        settingsState = settingsState.copy(developerMode = enabled)
+        settingsRepository.developerMode = enabled
     }
 }

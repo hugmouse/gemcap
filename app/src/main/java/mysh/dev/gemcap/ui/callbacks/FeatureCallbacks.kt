@@ -116,6 +116,7 @@ interface SettingsCallbacks {
     fun onSearchEngineChange(engine: SearchEngine)
     fun onHomePageChange(url: String)
     fun onSetAsHomePage()
+    fun onDeveloperModeChange(enabled: Boolean)
 }
 
 interface MenuCallbacks {
@@ -139,6 +140,14 @@ interface LinkContextCallbacks {
     fun onDownloadEmbeddedMedia(url: String, data: StableByteArray?, dataFilePath: String?, mimeType: String)
 }
 
+interface ConsoleCallbacks {
+    fun onToggleConsole()
+    fun onDismissConsole()
+    fun onClearConsole()
+    fun onStartLogcat()
+    fun onStopLogcat()
+}
+
 interface BrowserCallbacks :
     NavigationCallbacks,
     TabCallbacks,
@@ -151,4 +160,5 @@ interface BrowserCallbacks :
     MenuCallbacks,
     AutocompleteCallbacks,
     SessionCallbacks,
-    LinkContextCallbacks
+    LinkContextCallbacks,
+    ConsoleCallbacks

@@ -3,6 +3,9 @@ package mysh.dev.gemcap.network
 import android.content.Context
 import android.util.Log
 import androidx.core.content.edit
+import mysh.dev.gemcap.domain.ConsoleCategory
+import mysh.dev.gemcap.domain.ConsoleLevel
+import mysh.dev.gemcap.domain.ConsoleLogger
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.asn1.x500.style.BCStyle
 import java.security.cert.CertificateException
@@ -48,7 +51,10 @@ sealed class TofuResult {
     It is likely to disable certificate validation altogether, and is non-trivial
     to implement correctly without calling Android's default implementation.
  */
-class TofuTrustManager(private val context: Context) : X509TrustManager {
+class TofuTrustManager(
+    private val context: Context,
+    private val consoleLogger: ConsoleLogger = ConsoleLogger.NoOp
+) : X509TrustManager {
 
     private val sharedPreferences = context.getSharedPreferences("tofu_certs", Context.MODE_PRIVATE)
 
@@ -244,6 +250,11 @@ class TofuTrustManager(private val context: Context) : X509TrustManager {
             val bypassKey = "${host.lowercase()};${if (port <= 0) DEFAULT_GEMINI_PORT else port}"
             if (bypassKey !in domainBypassHosts) {
                 Log.w(TAG, "Domain mismatch for $host")
+                consoleLogger.log(
+                    ConsoleCategory.SECURITY,
+                    ConsoleLevel.WARNING,
+                    "\u26A0 Domain mismatch for $host"
+                )
                 return TofuResult.DomainMismatch(
                     host = host,
                     certDomains = getCertDomains(cert)
@@ -283,6 +294,11 @@ class TofuTrustManager(private val context: Context) : X509TrustManager {
                 // Stored cert is still valid
                 if (savedFingerprint == fingerprint) {
                     // Fingerprint matches - trusted
+                    consoleLogger.log(
+                        ConsoleCategory.SECURITY,
+                        ConsoleLevel.INFO,
+                        "\uD83D\uDD12 TOFU: known host $host"
+                    )
                     return TofuResult.Trusted
                 }
 
@@ -295,6 +311,12 @@ class TofuTrustManager(private val context: Context) : X509TrustManager {
                 }
 
                 // Not CA-trusted and changed - warn user
+                consoleLogger.log(
+                    ConsoleCategory.SECURITY,
+                    ConsoleLevel.WARNING,
+                    "\u26A0 TOFU: certificate changed for $host",
+                    detail = "Old: $savedFingerprint\nNew: $fingerprint"
+                )
                 return TofuResult.CertificateChanged(
                     host = host,
                     port = port,
@@ -332,6 +354,12 @@ class TofuTrustManager(private val context: Context) : X509TrustManager {
         // Step 6: No existing trust - first use, store and trust
         Log.d(TAG, "First use for $host:$port, storing fingerprint")
         saveCertificate(trustKey, fingerprint, cert.notAfter.time)
+        consoleLogger.log(
+            ConsoleCategory.SECURITY,
+            ConsoleLevel.INFO,
+            "\uD83D\uDD12 TOFU: first visit to $host",
+            detail = "SHA-256: $fingerprint"
+        )
         return TofuResult.FirstUse
     }
 

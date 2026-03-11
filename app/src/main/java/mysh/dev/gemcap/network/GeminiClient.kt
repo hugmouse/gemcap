@@ -10,6 +10,9 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
 import mysh.dev.gemcap.data.EncryptedIdentityStorage
+import mysh.dev.gemcap.domain.ConsoleCategory
+import mysh.dev.gemcap.domain.ConsoleLevel
+import mysh.dev.gemcap.domain.ConsoleLogger
 import mysh.dev.gemcap.domain.GeminiResponse
 import mysh.dev.gemcap.domain.ServerCertInfo
 import org.bouncycastle.asn1.x500.X500Name
@@ -90,10 +93,11 @@ sealed class GeminiFetchResult {
 class GeminiClient(
     context: Context,
     private val identityStorage: EncryptedIdentityStorage,
-    private val maxResponseBodyBytes: Int = DEFAULT_MAX_RESPONSE_BODY_BYTES
+    private val maxResponseBodyBytes: Int = DEFAULT_MAX_RESPONSE_BODY_BYTES,
+    private val consoleLogger: ConsoleLogger = ConsoleLogger.NoOp
 ) {
 
-    private val tofuTrustManager = TofuTrustManager(context)
+    private val tofuTrustManager = TofuTrustManager(context, consoleLogger)
 
     init {
         require(maxResponseBodyBytes > 0) { "maxResponseBodyBytes must be > 0" }
@@ -208,6 +212,11 @@ class GeminiClient(
         Log.d(
             TAG,
             "Fetch start url=$url normalized=$normalizedUrl host=$host port=$port path=${uri.path} query=${uri.query}"
+        )
+        consoleLogger.log(
+            ConsoleCategory.NETWORK,
+            ConsoleLevel.INFO,
+            "\u2192 $normalizedUrl"
         )
 
         // First create a plain TCP socket and connect with timeout
@@ -331,6 +340,12 @@ class GeminiClient(
                     parseResponse(inputStream, onProgress)
                 }
                 Log.d(TAG, "Fetch response status=${response.status} meta='${response.meta}'")
+                consoleLogger.log(
+                    ConsoleCategory.NETWORK,
+                    ConsoleLevel.INFO,
+                    "\u2190 ${response.status} ${response.meta}",
+                    detail = "URL: $normalizedUrl\nSize: ${response.body?.size ?: 0} bytes"
+                )
 
                 // Handle client certificate required responses
                 if (response.status in 60..62) {
@@ -364,10 +379,22 @@ class GeminiClient(
             // Check if socket was closed due to cancellation
             currentCoroutineContext().ensureActive()  // Throws CancellationException if cancelled
             Log.e(TAG, "Failed to fetch: $url", e)
+            consoleLogger.log(
+                ConsoleCategory.ERROR,
+                ConsoleLevel.ERROR,
+                "\u2715 ${e.javaClass.simpleName}: ${e.message ?: "Unknown error"}",
+                detail = "URL: $url"
+            )
             return GeminiFetchResult.Error(e)
         } catch (e: SSLException) {
             closeRawSocket()
             Log.e(TAG, "SSL error fetching: $url", e)
+            consoleLogger.log(
+                ConsoleCategory.ERROR,
+                ConsoleLevel.ERROR,
+                "\u2715 ${e.javaClass.simpleName}: ${e.message ?: "Unknown error"}",
+                detail = "URL: $url"
+            )
             return GeminiFetchResult.Error(e)
         } catch (e: CancellationException) {
             closeRawSocket()
@@ -377,6 +404,12 @@ class GeminiClient(
             // Keep this fallback so fetchWithRetry can surface unexpected runtime failures.
             closeRawSocket()
             Log.e(TAG, "Failed to fetch: $url", e)
+            consoleLogger.log(
+                ConsoleCategory.ERROR,
+                ConsoleLevel.ERROR,
+                "\u2715 ${e.javaClass.simpleName}: ${e.message ?: "Unknown error"}",
+                detail = "URL: $url"
+            )
             return GeminiFetchResult.Error(e)
         }
     }

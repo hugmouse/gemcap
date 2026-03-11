@@ -134,6 +134,7 @@ fun ControlBar(
             onToggleBookmark = { callbacks.onToggleBookmark() },
             onBookmarksClick = { callbacks.onShowBookmarks() },
             onHistoryClick = { callbacks.onShowHistory() },
+            onConsoleClick = { callbacks.onToggleConsole() },
             onSetAsHomePage = { callbacks.onSetAsHomePage() },
             onSettingsClick = { callbacks.onShowSettings() }
         )

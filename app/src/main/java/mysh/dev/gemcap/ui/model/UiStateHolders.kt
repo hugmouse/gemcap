@@ -97,7 +97,8 @@ data class PanelState(
     val showSettings: Boolean = false,
     val showCertificateGeneration: Boolean = false,
     val showCertificateManagement: Boolean = false,
-    val showIdentityMenu: Boolean = false
+    val showIdentityMenu: Boolean = false,
+    val showConsole: Boolean = false
 )
 
 /**
@@ -117,7 +118,8 @@ data class SettingsState(
     val themeMode: ThemeMode,
     val fontSize: FontSize,
     val homePage: String,
-    val searchEngine: SearchEngine
+    val searchEngine: SearchEngine,
+    val developerMode: Boolean = false
 )
 
 /**

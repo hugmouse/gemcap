@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MoreVert
@@ -33,6 +34,7 @@ fun ToolbarMenu(
     onToggleBookmark: () -> Unit,
     onBookmarksClick: () -> Unit,
     onHistoryClick: () -> Unit,
+    onConsoleClick: () -> Unit,
     onSetAsHomePage: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
@@ -107,6 +109,16 @@ fun ToolbarMenu(
                 },
                 leadingIcon = {
                     Icon(Icons.Default.History, contentDescription = null)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("Console") },
+                onClick = {
+                    onConsoleClick()
+                    onMenuDismiss()
+                },
+                leadingIcon = {
+                    Icon(Icons.Default.Build, contentDescription = null)
                 }
             )
             HorizontalDivider()

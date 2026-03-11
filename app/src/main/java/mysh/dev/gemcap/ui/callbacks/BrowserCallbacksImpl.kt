@@ -149,6 +149,7 @@ class BrowserCallbacksImpl(
 
     override fun onHomePageChange(url: String) = viewModel.setHomePage(url)
     override fun onSetAsHomePage() = viewModel.setCurrentPageAsHome()
+    override fun onDeveloperModeChange(enabled: Boolean) = viewModel.updateDeveloperMode(enabled)
 
     // MenuCallbacks
     override fun onShowMenu() = viewModel.showMenuDropdown()
@@ -158,6 +159,13 @@ class BrowserCallbacksImpl(
     override fun onSuggestionClick(entry: HistoryEntry) = viewModel.selectSuggestion(entry)
     override fun onSuggestionsDismiss() = viewModel.dismissSuggestions()
     override fun onTabSessionStateChanged() = viewModel.onTabSessionStateChanged()
+
+    // ConsoleCallbacks
+    override fun onToggleConsole() = viewModel.toggleConsole()
+    override fun onDismissConsole() = viewModel.dismissConsole()
+    override fun onClearConsole() = viewModel.clearConsole()
+    override fun onStartLogcat() = viewModel.startLogcat()
+    override fun onStopLogcat() = viewModel.stopLogcat()
 
     // LinkContextCallbacks
     override fun onCopyLink(url: String) = viewModel.copyLinkToClipboard(url)
