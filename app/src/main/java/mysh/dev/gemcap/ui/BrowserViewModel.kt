@@ -1270,7 +1270,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 loadEmbeddedMediaToFile(tab, itemId, baseDisplayedUrl, resolvedUrl, certAlias, cacheKey, media)
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: Throwable) {
+            } catch (e: Exception) {
                 updateEmbeddedMedia(
                     tab = tab,
                     itemId = itemId,
