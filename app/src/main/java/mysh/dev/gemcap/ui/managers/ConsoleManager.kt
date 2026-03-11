@@ -31,16 +31,18 @@ class ConsoleManager(
     var errorCount by mutableIntStateOf(0)
         private set
 
+    // TODO: replace ID with atomic?
     override fun log(category: ConsoleCategory, level: ConsoleLevel, title: String, detail: String?) {
-        val entry = ConsoleEntry(
-            id = nextId++,
-            timestamp = System.currentTimeMillis(),
-            category = category,
-            level = level,
-            title = title,
-            detail = detail
-        )
         synchronized(buffer) {
+            val id = nextId++
+            val entry = ConsoleEntry(
+                id = id,
+                timestamp = System.currentTimeMillis(),
+                category = category,
+                level = level,
+                title = title,
+                detail = detail
+            )
             buffer.addLast(entry)
             while (buffer.size > MAX_ENTRIES) {
                 buffer.removeFirst()
