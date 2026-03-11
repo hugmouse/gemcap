@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
 import android.webkit.MimeTypeMap
+import java.io.File
 
 object DownloadUtils {
 
@@ -29,6 +30,49 @@ object DownloadUtils {
 
             resolver.openOutputStream(uri)?.use { outputStream ->
                 outputStream.write(data)
+            } ?: run {
+                resolver.delete(uri, null, null)
+                return Result.failure(Exception("Failed to open output stream"))
+            }
+
+            contentValues.clear()
+            contentValues.put(MediaStore.Downloads.IS_PENDING, 0)
+            val updated = resolver.update(uri, contentValues, null, null)
+            if (updated == 0) {
+                resolver.delete(uri, null, null)
+                return Result.failure(Exception("Failed to finalize download entry"))
+            }
+
+            Result.success("Downloads/$fileName")
+        } catch (e: Exception) {
+            pendingUri?.let { context.contentResolver.delete(it, null, null) }
+            Result.failure(e)
+        }
+    }
+
+    fun saveToDownloads(
+        context: Context,
+        sourceFile: File,
+        fileName: String,
+        mimeType: String
+    ): Result<String> {
+        var pendingUri: Uri? = null
+        return try {
+            val contentValues = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+
+            val resolver = context.contentResolver
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                ?: return Result.failure(Exception("Failed to create download entry"))
+            pendingUri = uri
+
+            resolver.openOutputStream(uri)?.use { outputStream ->
+                sourceFile.inputStream().buffered().use { input ->
+                    input.copyTo(outputStream)
+                }
             } ?: run {
                 resolver.delete(uri, null, null)
                 return Result.failure(Exception("Failed to open output stream"))

@@ -15,6 +15,9 @@ import mysh.dev.gemcap.domain.ServerCertInfo
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.asn1.x500.style.BCStyle
 import java.io.ByteArrayOutputStream
+import java.io.BufferedOutputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStream
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -33,7 +36,8 @@ private const val MAX_SSL_RETRIES = 3
 private const val CONNECT_TIMEOUT_MS = 10_000
 private const val READ_TIMEOUT_MS = 30_000
 private const val MAX_HEADER_BYTES = 1024
-private const val DEFAULT_MAX_RESPONSE_BODY_BYTES = 16 * 1024 * 1024
+internal const val DEFAULT_MAX_RESPONSE_BODY_BYTES = 16 * 1024 * 1024
+private const val MAX_FILE_RESPONSE_BODY_BYTES = 500 * 1024 * 1024
 
 class UriTooLongException(length: Int) :
     Exception("URI exceeds maximum length of $MAX_URI_BYTES bytes (was $length)")
@@ -116,10 +120,35 @@ class GeminiClient(
      * @param url The URL to fetch
      * @param certAlias Optional client certificate alias to use for this request
      */
-    suspend fun fetch(url: String, certAlias: String? = null): GeminiFetchResult =
+    suspend fun fetch(
+        url: String,
+        certAlias: String? = null,
+        onProgress: ((bytesRead: Long) -> Unit)? = null
+    ): GeminiFetchResult =
         withContext(Dispatchers.IO) {
-            fetchWithRetry(url, certAlias)
+            fetchWithRetry(url, certAlias, onProgress)
         }
+
+    /**
+     * Fetches a Gemini URL and streams the response body to a file on disk.
+     *
+     * Unlike [fetch], this method does not enforce [maxResponseBodyBytes] and can handle
+     * arbitrarily large responses (up to 500MB safety limit). The returned [GeminiResponse]
+     * will have `body = null`; the data is written to [outputFile].
+     *
+     * @param url The URL to fetch
+     * @param outputFile The file to write the response body to
+     * @param certAlias Optional client certificate alias to use for this request
+     * @param onProgress Callback invoked with total bytes read so far
+     */
+    suspend fun fetchToFile(
+        url: String,
+        outputFile: File,
+        certAlias: String? = null,
+        onProgress: ((bytesRead: Long) -> Unit)? = null
+    ): GeminiFetchResult = withContext(Dispatchers.IO) {
+        fetchWithRetry(url, certAlias, onProgress, outputFile)
+    }
 
     /**
      * Retries the fetch on transient SSL errors (BAD_DECRYPT / BAD_RECORD_MAC).
@@ -130,10 +159,15 @@ class GeminiClient(
      *
      * This is a stupid hack and should be removed if I ever understand the issue.
      */
-    private suspend fun fetchWithRetry(url: String, certAlias: String?): GeminiFetchResult {
+    private suspend fun fetchWithRetry(
+        url: String,
+        certAlias: String?,
+        onProgress: ((bytesRead: Long) -> Unit)? = null,
+        outputFile: File? = null
+    ): GeminiFetchResult {
         var lastError: GeminiFetchResult.Error? = null
         for (attempt in 1..MAX_SSL_RETRIES) {
-            val result = fetchInternal(url, getSocketFactory(certAlias))
+            val result = fetchInternal(url, getSocketFactory(certAlias), onProgress, outputFile)
             val sslException = (result as? GeminiFetchResult.Error)?.exception as? SSLException
             if (sslException == null || !isTransientSslException(sslException)) {
                 return result
@@ -155,7 +189,9 @@ class GeminiClient(
     @Suppress("TooGenericExceptionCaught")
     private suspend fun fetchInternal(
         url: String,
-        socketFactory: javax.net.ssl.SSLSocketFactory
+        socketFactory: javax.net.ssl.SSLSocketFactory,
+        onProgress: ((bytesRead: Long) -> Unit)? = null,
+        outputFile: File? = null
     ): GeminiFetchResult {
         // Normalize and validate URL per Gemini spec
         val normalizedUrl = try {
@@ -289,7 +325,11 @@ class GeminiClient(
 
                 // Read response
                 val inputStream = sslSocket.inputStream
-                val response = parseResponse(inputStream)
+                val response = if (outputFile != null) {
+                    parseResponseToFile(inputStream, outputFile, onProgress)
+                } else {
+                    parseResponse(inputStream, onProgress)
+                }
                 Log.d(TAG, "Fetch response status=${response.status} meta='${response.meta}'")
 
                 // Handle client certificate required responses
@@ -368,7 +408,9 @@ class GeminiClient(
         tofuTrustManager.acceptNewCertificate(host, port, fingerprint, expiry)
     }
 
-    private fun parseResponse(inputStream: InputStream): GeminiResponse {
+    private data class ParsedHeader(val status: Int, val meta: String)
+
+    private fun parseHeader(inputStream: InputStream): ParsedHeader {
         val headerBuffer = ByteArrayOutputStream()
         var previous = -1
         var current: Int
@@ -394,24 +436,66 @@ class GeminiClient(
 
         val headerBytes = headerBuffer.toByteArray()
         val headerLine = String(headerBytes, 0, headerEndIndex, Charsets.UTF_8)
-        val parts = headerLine.trim().split(Regex("\\s+"), 2)
-        val statusString = parts.getOrNull(0) ?: throw Exception("Invalid status")
-        val meta = parts.getOrNull(1) ?: ""
+        val spaceIndex = headerLine.indexOf(' ')
+        val statusString = if (spaceIndex != -1) headerLine.substring(0, spaceIndex) else headerLine
+        val meta = if (spaceIndex != -1) headerLine.substring(spaceIndex + 1) else ""
 
         val status = statusString.toIntOrNull() ?: throw Exception("Non-numeric status code")
 
-        var body: ByteArray? = null
-        if (status in 20..29) {
-            body = readResponseBodyWithLimit(inputStream)
-        }
-
-        return GeminiResponse(status, meta, body)
+        return ParsedHeader(status, meta)
     }
 
-    private fun readResponseBodyWithLimit(inputStream: InputStream): ByteArray {
+    private fun parseResponse(
+        inputStream: InputStream,
+        onProgress: ((bytesRead: Long) -> Unit)? = null
+    ): GeminiResponse {
+        val header = parseHeader(inputStream)
+        var body: ByteArray? = null
+        if (header.status in 20..29) {
+            body = readResponseBodyWithLimit(inputStream, onProgress)
+        }
+        return GeminiResponse(header.status, header.meta, body)
+    }
+
+    private suspend fun parseResponseToFile(
+        inputStream: InputStream,
+        outputFile: File,
+        onProgress: ((bytesRead: Long) -> Unit)? = null
+    ): GeminiResponse {
+        val header = parseHeader(inputStream)
+        if (header.status in 20..29) {
+            val parentDir = outputFile.absoluteFile.parentFile ?: File(".")
+            parentDir.mkdirs()
+            val tempFile = File(parentDir, outputFile.name + ".tmp")
+            try {
+                readResponseBodyToFile(inputStream, tempFile, onProgress)
+                if (!tempFile.renameTo(outputFile)) {
+                    try {
+                        tempFile.inputStream().use { input ->
+                            outputFile.outputStream().use { output -> input.copyTo(output) }
+                        }
+                    } catch (e: Exception) {
+                        outputFile.delete()
+                        throw e
+                    } finally {
+                        tempFile.delete()
+                    }
+                }
+            } catch (e: Exception) {
+                tempFile.delete()
+                throw e
+            }
+        }
+        return GeminiResponse(header.status, header.meta, body = null)
+    }
+
+    private fun readResponseBodyWithLimit(
+        inputStream: InputStream,
+        onProgress: ((bytesRead: Long) -> Unit)? = null
+    ): ByteArray {
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
         val output = ByteArrayOutputStream()
-        var totalBytes = 0
+        var totalBytes = 0L
 
         while (true) {
             val read = inputStream.read(buffer)
@@ -425,8 +509,33 @@ class GeminiClient(
                 )
             }
             output.write(buffer, 0, read)
+            onProgress?.invoke(totalBytes)
         }
         return output.toByteArray()
+    }
+
+    private suspend fun readResponseBodyToFile(
+        inputStream: InputStream,
+        outputFile: File,
+        onProgress: ((bytesRead: Long) -> Unit)? = null
+    ) {
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var totalBytes = 0L
+        BufferedOutputStream(FileOutputStream(outputFile)).use { bos ->
+            while (true) {
+                currentCoroutineContext().ensureActive()
+                val read = inputStream.read(buffer)
+                if (read == -1) break
+                totalBytes += read
+                if (totalBytes > MAX_FILE_RESPONSE_BODY_BYTES) {
+                    throw Exception(
+                        "Response body exceeds max file size of $MAX_FILE_RESPONSE_BODY_BYTES bytes"
+                    )
+                }
+                bos.write(buffer, 0, read)
+                onProgress?.invoke(totalBytes)
+            }
+        }
     }
 
     private fun normalizeUrl(url: String): String {

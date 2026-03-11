@@ -28,6 +28,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import mysh.dev.gemcap.data.BrowserRepository
 import mysh.dev.gemcap.data.ClientCertRepository
+import mysh.dev.gemcap.media.GemcapPlayerManager
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -55,6 +57,7 @@ import mysh.dev.gemcap.domain.StableByteArray
 import mysh.dev.gemcap.domain.TofuDomainMismatchState
 import mysh.dev.gemcap.domain.TofuWarningState
 import mysh.dev.gemcap.network.BackoffManager
+import mysh.dev.gemcap.network.DEFAULT_MAX_RESPONSE_BODY_BYTES
 import mysh.dev.gemcap.network.CertificateGenerator
 import mysh.dev.gemcap.network.GeminiClient
 import mysh.dev.gemcap.network.GeminiFetchResult
@@ -87,6 +90,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     companion object {
         private const val EMBEDDED_MEDIA_CACHE_MAX_BYTES = 50 * 1024 * 1024
         private const val EMBEDDED_MEDIA_CACHE_TTL_MILLIS = 30L * 60L * 1000L
+        private const val IMAGE_IN_MEMORY_MAX_BYTES = 8L * 1024L * 1024L
         private const val TAB_HISTORY_PERSIST_LIMIT = 50
         private const val TAB_SESSION_PERSIST_DEBOUNCE_MILLIS = 400L
     }
@@ -102,6 +106,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         maxBytes = EMBEDDED_MEDIA_CACHE_MAX_BYTES,
         ttlMillis = EMBEDDED_MEDIA_CACHE_TTL_MILLIS
     )
+    val playerManager = GemcapPlayerManager(application)
 
     // Track loading jobs per tab for cancellation
     private val loadingJobs = mutableMapOf<String, Job>()
@@ -251,6 +256,21 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             reloadRestoredTabs()
         }
     }
+
+    override fun onCleared() {
+        super.onCleared()
+        playerManager.release()
+        // Clean up temp media files
+        File(getApplication<Application>().cacheDir, "media").deleteRecursively()
+    }
+
+    /** Delete any temp files backing embedded media in the given tab's current content. */
+    private fun cleanupTempMediaFiles(tab: TabState) {
+        tab.content.filterIsInstance<GeminiContent.EmbeddedMedia>()
+            .mapNotNull { it.dataFilePath }
+            .forEach { File(it).delete() }
+    }
+
     private fun reloadRestoredTabs() {
         // Only load the active tab immediately; other tabs load on first selection
         activeTabId ?: return
@@ -273,6 +293,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         loadingJobs[tabId]?.cancel()
         loadingJobs.remove(tabId)
         cancelEmbeddedMediaJobsForTab(tabId)
+        if (playerManager.currentMediaKey?.startsWith("${tabId}:") == true) {
+            playerManager.release()
+        }
+        tabManager.tabs.find { it.id == tabId }?.let { cleanupTempMediaFiles(it) }
         tabManager.closeTab(tabId)
     }
 
@@ -747,9 +771,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val currentTab = activeTab ?: return
         val tabId = currentTab.id
 
-        // Cancel any existing loading job for this tab
         loadingJobs[tabId]?.cancel()
         cancelEmbeddedMediaJobsForTab(tabId)
+        cleanupTempMediaFiles(currentTab)
 
         val job = viewModelScope.launch {
             var targetUrl = currentTab.url.trim()
@@ -757,7 +781,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
             // Check if input looks like a domain/URL or a search query
             if (!isLocalPage && !targetUrl.contains("://")) {
-                val looksLikeUrl = targetUrl.contains(".") && !targetUrl.contains(" ")
+                val looksLikeUrl = targetUrl.contains(".") && !targetUrl.contains(" ") && !targetUrl.startsWith(".")
                 targetUrl = if (looksLikeUrl) {
                     "gemini://$targetUrl"
                 } else {
@@ -1242,42 +1266,21 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 if (!markedLoading) {
                     return@launch
                 }
-                when (val result = fetchEmbeddedMediaWithRedirects(resolvedUrl, certAlias)) {
-                    is EmbeddedMediaFetchResult.Success -> {
-                        val response = result.response
-                        val mimeType = response.meta.lowercase().split(";").first().trim()
-                        val data = response.body ?: ByteArray(0)
-                        val resolvedMimeType = mimeType.ifBlank { media.mimeType }
-                        val stableData = StableByteArray(data)
-                        embeddedMediaCache.put(cacheKey, stableData, resolvedMimeType)
-                        updateEmbeddedMedia(
-                            tab = tab,
-                            itemId = itemId,
-                            expectedDisplayedUrl = baseDisplayedUrl,
-                            expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
-                        ) { item ->
-                            item.copy(
-                                state = GeminiContent.EmbeddedMediaState.LOADED,
-                                mimeType = resolvedMimeType,
-                                data = stableData,
-                                errorMessage = null
-                            )
-                        }
-                    }
 
-                    is EmbeddedMediaFetchResult.Error -> {
-                        updateEmbeddedMedia(
-                            tab = tab,
-                            itemId = itemId,
-                            expectedDisplayedUrl = baseDisplayedUrl,
-                            expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
-                        ) { item ->
-                            item.copy(
-                                state = GeminiContent.EmbeddedMediaState.ERROR,
-                                errorMessage = result.message
-                            )
-                        }
-                    }
+                loadEmbeddedMediaToFile(tab, itemId, baseDisplayedUrl, resolvedUrl, certAlias, cacheKey, media)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                updateEmbeddedMedia(
+                    tab = tab,
+                    itemId = itemId,
+                    expectedDisplayedUrl = baseDisplayedUrl,
+                    expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
+                ) { item ->
+                    item.copy(
+                        state = GeminiContent.EmbeddedMediaState.ERROR,
+                        errorMessage = e.message ?: "Unknown error"
+                    )
                 }
             } finally {
                 if (embeddedMediaLoadingJobs[loadingJobKey] == coroutineContext[Job]) {
@@ -1288,27 +1291,191 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         embeddedMediaLoadingJobs[loadingJobKey] = job
     }
 
+    @Suppress("TooGenericExceptionCaught", "LongParameterList")
+    private suspend fun loadEmbeddedMediaToFile(
+        tab: TabState,
+        itemId: Int,
+        expectedDisplayedUrl: String,
+        resolvedUrl: String,
+        certAlias: String?,
+        cacheKey: String,
+        media: GeminiContent.EmbeddedMedia
+    ) {
+        var cacheDir = File(getApplication<Application>().cacheDir, "media")
+        cacheDir.mkdirs()
+        if (!cacheDir.exists() || !cacheDir.isDirectory) {
+            Log.w("BrowserViewModel", "Failed to create media cache dir, falling back to app cacheDir")
+            cacheDir = getApplication<Application>().cacheDir
+        }
+        val tempFile = File.createTempFile("media_", ".tmp", cacheDir)
+
+        try {
+            var lastReportedBytes = 0L
+            when (val result = fetchEmbeddedMediaWithRedirects(
+                initialUrl = resolvedUrl,
+                certAlias = certAlias,
+                outputFile = tempFile,
+                onProgress = { bytesRead ->
+                    if (bytesRead - lastReportedBytes >= 16384L) {
+                        lastReportedBytes = bytesRead
+                        viewModelScope.launch(Dispatchers.Main.immediate) {
+                            updateEmbeddedMedia(
+                                tab = tab,
+                                itemId = itemId,
+                                expectedDisplayedUrl = expectedDisplayedUrl,
+                                expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
+                            ) { item ->
+                                item.copy(
+                                    downloadProgress = GeminiContent.DownloadProgress(
+                                        fraction = (kotlin.math.ln(1f + bytesRead.toFloat()) / kotlin.math.ln(1f + DEFAULT_MAX_RESPONSE_BODY_BYTES.toFloat())).coerceAtMost(0.95f),
+                                        bytesRead = bytesRead
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            )) {
+                is EmbeddedMediaFetchResult.Success -> {
+                    val mimeType = result.response.meta.lowercase().split(";").first().trim()
+                    val resolvedMimeType = mimeType.ifBlank { media.mimeType }
+                    val mediaType = resolvedMimeType.substringBefore("/")
+
+                    if (mediaType == "image" && tempFile.length() <= IMAGE_IN_MEMORY_MAX_BYTES) {
+                        // Confirmed image with safe size — load into memory for display and caching
+                        val bytes = tempFile.readBytes()
+                        tempFile.delete()
+                        val stableData = StableByteArray(bytes)
+                        embeddedMediaCache.put(cacheKey, stableData, resolvedMimeType)
+                        updateEmbeddedMedia(
+                            tab = tab,
+                            itemId = itemId,
+                            expectedDisplayedUrl = expectedDisplayedUrl,
+                            expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
+                        ) { item ->
+                            item.copy(
+                                state = GeminiContent.EmbeddedMediaState.LOADED,
+                                mimeType = resolvedMimeType,
+                                data = stableData,
+                                dataFilePath = null,
+                                errorMessage = null,
+                                downloadProgress = null
+                            )
+                        }
+                    } else {
+                        val updated = updateEmbeddedMedia(
+                            tab = tab,
+                            itemId = itemId,
+                            expectedDisplayedUrl = expectedDisplayedUrl,
+                            expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
+                        ) { item ->
+                            item.copy(
+                                state = GeminiContent.EmbeddedMediaState.LOADED,
+                                mimeType = resolvedMimeType,
+                                dataFilePath = tempFile.absolutePath,
+                                data = null,
+                                errorMessage = null,
+                                downloadProgress = null
+                            )
+                        }
+                        if (updated && (mediaType == "audio" || mediaType == "video")) {
+                            withContext(Dispatchers.Main) {
+                                playerManager.playFromFile(tempFile, resolvedMimeType, "${tab.id}:${itemId}")
+                            }
+                        } else if (!updated) {
+                            tempFile.delete()
+                        }
+                    }
+                }
+
+                is EmbeddedMediaFetchResult.Error -> {
+                    tempFile.delete()
+                    updateEmbeddedMedia(
+                        tab = tab,
+                        itemId = itemId,
+                        expectedDisplayedUrl = expectedDisplayedUrl,
+                        expectedStates = setOf(GeminiContent.EmbeddedMediaState.LOADING)
+                    ) { item ->
+                        item.copy(
+                            state = GeminiContent.EmbeddedMediaState.ERROR,
+                            errorMessage = result.message
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            tempFile.delete()
+            throw e
+        }
+    }
+
+    fun playEmbeddedMedia(itemId: Int) {
+        val tab = activeTab ?: return
+        val media = tab.content.firstOrNull {
+            it is GeminiContent.EmbeddedMedia && it.id == itemId
+        } as? GeminiContent.EmbeddedMedia ?: return
+        if (media.state != GeminiContent.EmbeddedMediaState.LOADED) return
+
+        val filePath = media.dataFilePath
+        if (filePath != null) {
+            playerManager.playFromFile(File(filePath), media.mimeType, "${tab.id}:${itemId}")
+        } else {
+            val data = media.data?.bytes ?: return
+            playerManager.play(data, media.mimeType, "${tab.id}:${itemId}")
+        }
+    }
+
     fun collapseEmbeddedMedia(itemId: Int) {
         val tab = activeTab ?: return
+        // Delete temp file if media was loaded from disk
+        val media = tab.content.firstOrNull {
+            it is GeminiContent.EmbeddedMedia && it.id == itemId
+        } as? GeminiContent.EmbeddedMedia
+        if (media != null && playerManager.currentMediaKey == "${tab.id}:${media.id}") {
+            playerManager.release()
+        }
+        media?.dataFilePath?.let { path ->
+            File(path).delete()
+        }
         cancelEmbeddedMediaLoadingJob(tab.id, itemId)
         updateEmbeddedMedia(tab, itemId) { item ->
             item.copy(
                 state = GeminiContent.EmbeddedMediaState.COLLAPSED,
                 data = null,
+                dataFilePath = null,
                 errorMessage = null
             )
         }
     }
 
-    fun downloadEmbeddedMedia(url: String, data: StableByteArray, mimeType: String) {
+    fun downloadEmbeddedMedia(url: String, data: StableByteArray?, dataFilePath: String?, mimeType: String) {
         val fileName = DownloadUtils.suggestFileName(url, mimeType)
         viewModelScope.launch(Dispatchers.IO) {
-            val result = DownloadUtils.saveToDownloads(
-                context = getApplication(),
-                data = data.bytes,
-                fileName = fileName,
-                mimeType = mimeType
-            )
+            val sourceFile = dataFilePath?.let { File(it).takeIf { f -> f.exists() } }
+            val result = if (sourceFile != null) {
+                DownloadUtils.saveToDownloads(
+                    context = getApplication(),
+                    sourceFile = sourceFile,
+                    fileName = fileName,
+                    mimeType = mimeType
+                )
+            } else {
+                val bytes = data?.bytes
+                if (bytes == null) {
+                    withContext(Dispatchers.Main) {
+                        snackbarHostState.showSnackbar(
+                            getApplication<Application>().getString(R.string.embedded_media_download_unavailable, fileName)
+                        )
+                    }
+                    return@launch
+                }
+                DownloadUtils.saveToDownloads(
+                    context = getApplication(),
+                    data = bytes,
+                    fileName = fileName,
+                    mimeType = mimeType
+                )
+            }
             withContext(Dispatchers.Main) {
                 snackbarHostState.showSnackbar(
                     result.fold(
@@ -1403,13 +1570,17 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private suspend fun fetchEmbeddedMediaWithRedirects(
         initialUrl: String,
         certAlias: String?,
-        maxRedirects: Int = 5
+        maxRedirects: Int = 5,
+        onProgress: ((bytesRead: Long) -> Unit)? = null,
+        outputFile: File? = null
     ): EmbeddedMediaFetchResult {
         val app = getApplication<Application>()
         return followRedirects(
             initialUrl = initialUrl,
             certAlias = certAlias,
             maxRedirects = maxRedirects,
+            onProgress = onProgress,
+            outputFile = outputFile,
             mapResult = { result, currentUrl ->
                 when (result) {
                     is GeminiFetchResult.Success -> {
@@ -1513,6 +1684,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         initialUrl: String,
         certAlias: String?,
         maxRedirects: Int,
+        onProgress: ((bytesRead: Long) -> Unit)? = null,
+        outputFile: File? = null,
         mapResult: (result: GeminiFetchResult, currentUrl: String) -> RedirectLoopResult<T>,
         onInvalidRedirect: (statusCode: Int, message: String) -> T,
         onTooManyRedirects: (redirectLimit: Int) -> T
@@ -1521,7 +1694,11 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         var redirectCount = 0
 
         while (redirectCount < maxRedirects) {
-            val fetchResult = client.fetch(currentUrl, certAlias)
+            val fetchResult = if (outputFile != null) {
+                client.fetchToFile(currentUrl, outputFile, certAlias, onProgress)
+            } else {
+                client.fetch(currentUrl, certAlias, onProgress)
+            }
             currentCoroutineContext().ensureActive()
 
             when (val mapped = mapResult(fetchResult, currentUrl)) {

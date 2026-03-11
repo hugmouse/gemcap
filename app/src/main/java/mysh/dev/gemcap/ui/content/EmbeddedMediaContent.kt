@@ -1,9 +1,6 @@
 package mysh.dev.gemcap.ui.content
 
 import android.graphics.BitmapFactory
-import android.media.AudioAttributes
-import android.media.MediaDataSource
-import android.media.MediaPlayer
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -13,64 +10,89 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.Stable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.text.selection.DisableSelection
+import androidx.annotation.OptIn
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.compose.ContentFrame
+import androidx.media3.ui.compose.SURFACE_TYPE_SURFACE_VIEW
+import androidx.media3.ui.compose.material3.buttons.PlayPauseButton
+import androidx.media3.ui.compose.material3.buttons.SeekBackButton
+import androidx.media3.ui.compose.material3.buttons.SeekForwardButton
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import mysh.dev.gemcap.R
 import mysh.dev.gemcap.domain.GeminiContent
 import mysh.dev.gemcap.domain.StableByteArray
+import mysh.dev.gemcap.media.GemcapPlayerManager
 import java.util.Locale
-import kotlin.math.min
 
 @Composable
 fun EmbeddedMediaContent(
     item: GeminiContent.EmbeddedMedia,
     styles: CachedTextStyles,
+    playerManager: GemcapPlayerManager,
+    activeTabId: String,
     onLoadMedia: (Int) -> Unit,
+    onPlayMedia: (Int) -> Unit,
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
-    onDownloadMedia: (String, StableByteArray, String) -> Unit
+    onDownloadMedia: (String, StableByteArray?, String?, String) -> Unit,
+    onFullscreen: (Player) -> Unit
 ) {
     when (item.state) {
         GeminiContent.EmbeddedMediaState.COLLAPSED -> {
@@ -90,10 +112,15 @@ fun EmbeddedMediaContent(
         GeminiContent.EmbeddedMediaState.LOADED -> {
             LoadedMediaCard(
                 item = item,
+                styles = styles,
+                playerManager = playerManager,
+                activeTabId = activeTabId,
+                onPlayMedia = onPlayMedia,
                 onCollapseMedia = onCollapseMedia,
                 onOpenInNewTab = onOpenInNewTab,
                 onCopyLink = onCopyLink,
-                onDownloadMedia = onDownloadMedia
+                onDownloadMedia = onDownloadMedia,
+                onFullscreen = onFullscreen
             )
         }
 
@@ -276,13 +303,28 @@ private fun LoadingMediaCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(20.dp),
-                strokeWidth = 2.dp,
-                color = styles.linkIconColor
-            )
+            val progress = item.downloadProgress
+            if (progress != null && progress.fraction > 0f) {
+                CircularProgressIndicator(
+                    progress = { progress.fraction },
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = styles.linkIconColor
+                )
+            } else {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = styles.linkIconColor
+                )
+            }
+            val loadingText = if (progress != null && progress.bytesRead > 0L) {
+                stringResource(R.string.embedded_media_loading_with_size, mediaLabel, formatBytes(progress.bytesRead))
+            } else {
+                stringResource(R.string.embedded_media_loading, mediaLabel)
+            }
             Text(
-                text = stringResource(R.string.embedded_media_loading, mediaLabel),
+                text = loadingText,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -293,10 +335,15 @@ private fun LoadingMediaCard(
 @Composable
 private fun LoadedMediaCard(
     item: GeminiContent.EmbeddedMedia,
+    styles: CachedTextStyles,
+    playerManager: GemcapPlayerManager,
+    activeTabId: String,
+    onPlayMedia: (Int) -> Unit,
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
-    onDownloadMedia: (String, StableByteArray, String) -> Unit
+    onDownloadMedia: (String, StableByteArray?, String?, String) -> Unit,
+    onFullscreen: (Player) -> Unit
 ) {
     val mediaType = getMediaType(item.mimeType)
     val data = item.data ?: StableByteArray(ByteArray(0))
@@ -316,11 +363,30 @@ private fun LoadedMediaCard(
     if (mediaType == MediaType.AUDIO) {
         LoadedAudioMediaCard(
             item = item,
-            audioData = data,
+            styles = styles,
+            playerManager = playerManager,
+            activeTabId = activeTabId,
+            onPlayMedia = onPlayMedia,
             onCollapseMedia = onCollapseMedia,
             onOpenInNewTab = onOpenInNewTab,
             onCopyLink = onCopyLink,
             onDownloadMedia = onDownloadMedia
+        )
+        return
+    }
+
+    if (mediaType == MediaType.VIDEO) {
+        LoadedVideoMediaCard(
+            item = item,
+            styles = styles,
+            playerManager = playerManager,
+            activeTabId = activeTabId,
+            onPlayMedia = onPlayMedia,
+            onCollapseMedia = onCollapseMedia,
+            onOpenInNewTab = onOpenInNewTab,
+            onCopyLink = onCopyLink,
+            onDownloadMedia = onDownloadMedia,
+            onFullscreen = onFullscreen
         )
         return
     }
@@ -336,6 +402,14 @@ private fun LoadedMediaCard(
     )
 }
 
+private fun formatBytes(size: Long): String {
+    return when {
+        size < 1024L -> "${size}B"
+        size < 1024L * 1024L -> String.format(Locale.US, "%.1fKB", size / 1024.0)
+        else -> String.format(Locale.US, "%.1fMB", size / (1024.0 * 1024.0))
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun LoadedInlineImage(
@@ -344,7 +418,7 @@ private fun LoadedInlineImage(
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
-    onDownloadMedia: (String, StableByteArray, String) -> Unit
+    onDownloadMedia: (String, StableByteArray?, String?, String) -> Unit
 ) {
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
@@ -391,7 +465,7 @@ private fun LoadedInlineImage(
                 url = item.url,
                 onOpenInNewTab = onOpenInNewTab,
                 onCopyLink = onCopyLink,
-                onDownload = { onDownloadMedia(item.url, imageData, item.mimeType) },
+                onDownload = { onDownloadMedia(item.url, imageData, null, item.mimeType) },
                 extraItems = {
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.embedded_media_hide_image)) },
@@ -412,234 +486,90 @@ private fun LoadedInlineImage(
     }
 }
 
+private fun calculateSizeText(item: GeminiContent.EmbeddedMedia): String {
+    val filePath = item.dataFilePath
+    return if (filePath != null) {
+        try {
+            val file = java.io.File(filePath)
+            if (file.exists() && file.canRead()) formatBytes(file.length())
+            else formatBytes((item.data?.bytes?.size ?: 0).toLong())
+        } catch (_: SecurityException) {
+            formatBytes((item.data?.bytes?.size ?: 0).toLong())
+        }
+    } else {
+        formatBytes((item.data?.bytes?.size ?: 0).toLong())
+    }
+}
+
 @Composable
-private fun rememberAudioPlayerState(
-    itemId: Int,
-    audioData: StableByteArray,
-    unableToStartMessage: String,
-    playbackErrorMessage: String,
-    unableToPlayFileMessage: String,
-    unableToPauseMessage: String,
-    unableToRestartMessage: String,
-    onPrepared: () -> Unit = {},
-    onCompletion: () -> Unit = {},
-    onError: (String) -> Unit = {}
-): AudioPlayerState {
-    return remember(itemId, audioData) {
-        AudioPlayerState(
-            audioData = audioData,
-            unableToStartMessage = unableToStartMessage,
-            playbackErrorMessage = playbackErrorMessage,
-            unableToPlayFileMessage = unableToPlayFileMessage,
-            unableToPauseMessage = unableToPauseMessage,
-            unableToRestartMessage = unableToRestartMessage,
-            onPrepared = onPrepared,
-            onCompletion = onCompletion,
-            onError = onError
+private fun PlayerErrorEffect(
+    player: Player?,
+    isActiveItem: Boolean,
+    onError: (String?) -> Unit
+) {
+    // Reset playback error when this item becomes active again
+    LaunchedEffect(isActiveItem) {
+        if (isActiveItem) onError(null)
+    }
+
+    // Listen for playback errors only when this is the active item
+    DisposableEffect(player) {
+        val capturedPlayer = player
+        val listener = if (capturedPlayer != null) {
+            object : Player.Listener {
+                override fun onPlayerError(error: PlaybackException) {
+                    onError(error.localizedMessage ?: error.errorCodeName)
+                }
+            }.also { capturedPlayer.addListener(it) }
+        } else null
+
+        onDispose {
+            if (capturedPlayer != null && listener != null) {
+                capturedPlayer.removeListener(listener)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlaybackErrorText(error: String?, styles: CachedTextStyles) {
+    error?.let {
+        Text(
+            text = stringResource(R.string.embedded_media_playback_error, it),
+            style = styles.bodySmall,
+            color = MaterialTheme.colorScheme.error
         )
     }
 }
 
-@Stable
-private class AudioPlayerState(
-    private val audioData: StableByteArray,
-    private val unableToStartMessage: String,
-    private val playbackErrorMessage: String,
-    private val unableToPlayFileMessage: String,
-    private val unableToPauseMessage: String,
-    private val unableToRestartMessage: String,
-    private val onPrepared: () -> Unit,
-    private val onCompletion: () -> Unit,
-    private val onError: (String) -> Unit
-) {
-    var mediaPlayer by mutableStateOf<MediaPlayer?>(null)
-        private set
-    var isPreparing by mutableStateOf(false)
-        private set
-    var isPlaying by mutableStateOf(false)
-        private set
-    val isPaused: Boolean get() = mediaPlayer != null && !isPlaying
-    var playbackError by mutableStateOf<String?>(null)
-        private set
-
-    fun release() {
-        val player = mediaPlayer ?: return
-        runCatching {
-            player.setOnPreparedListener(null)
-            player.setOnCompletionListener(null)
-            player.setOnErrorListener(null)
-            player.release()
-        }
-        mediaPlayer = null
-        isPreparing = false
-        isPlaying = false
-    }
-
-    fun prepareAndStartPlayer() {
-        release()
-        playbackError = null
-        val player = MediaPlayer()
-        try {
-            player.setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .build()
-            )
-            player.setOnPreparedListener { preparedPlayer ->
-                isPreparing = false
-                playbackError = null
-                onPrepared()
-                runCatching { preparedPlayer.start() }
-                    .onSuccess { isPlaying = true }
-                    .onFailure { error ->
-                        isPlaying = false
-                        val message = error.message ?: unableToStartMessage
-                        playbackError = message
-                        onError(message)
-                    }
-            }
-            player.setOnCompletionListener { completedPlayer ->
-                isPlaying = false
-                onCompletion()
-                runCatching { completedPlayer.seekTo(0) }
-            }
-            player.setOnErrorListener { failedPlayer, _, _ ->
-                runCatching { failedPlayer.release() }
-                mediaPlayer = null
-                isPreparing = false
-                isPlaying = false
-                playbackError = playbackErrorMessage
-                onError(playbackErrorMessage)
-                true
-            }
-            player.setDataSource(ByteArrayMediaDataSource(audioData.bytes))
-            mediaPlayer = player
-            isPreparing = true
-            player.prepareAsync()
-        } catch (error: Exception) {
-            runCatching { player.release() }
-            mediaPlayer = null
-            isPreparing = false
-            isPlaying = false
-            val message = error.message ?: unableToPlayFileMessage
-            playbackError = message
-            onError(message)
-        }
-    }
-
-    fun start() {
-        if (isPreparing) return
-
-        val player = mediaPlayer
-        if (player == null) {
-            prepareAndStartPlayer()
-            return
-        }
-
-        runCatching { player.start() }
-            .onSuccess {
-                isPlaying = true
-                playbackError = null
-            }
-            .onFailure {
-                prepareAndStartPlayer()
-            }
-    }
-
-    fun stop() {
-        if (isPreparing) return
-
-        val player = mediaPlayer ?: return
-        runCatching { player.pause() }
-            .onSuccess {
-                isPlaying = false
-                playbackError = null
-            }
-            .onFailure { error ->
-                val message = error.message ?: unableToPauseMessage
-                playbackError = message
-                onError(message)
-            }
-    }
-
-    fun togglePlayback() {
-        if (isPlaying) {
-            stop()
-        } else {
-            start()
-        }
-    }
-
-    fun restartPlayback() {
-        if (isPreparing) return
-
-        val player = mediaPlayer
-        if (player == null) {
-            prepareAndStartPlayer()
-            return
-        }
-
-        runCatching {
-            player.seekTo(0)
-            player.start()
-            isPlaying = true
-            playbackError = null
-        }.onFailure { error ->
-            val message = error.message ?: unableToRestartMessage
-            playbackError = message
-            onError(message)
-        }
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(UnstableApi::class)
 @Composable
 private fun LoadedAudioMediaCard(
     item: GeminiContent.EmbeddedMedia,
-    audioData: StableByteArray,
+    styles: CachedTextStyles,
+    playerManager: GemcapPlayerManager,
+    activeTabId: String,
+    onPlayMedia: (Int) -> Unit,
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
-    onDownloadMedia: (String, StableByteArray, String) -> Unit
+    onDownloadMedia: (String, StableByteArray?, String?, String) -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    var playbackError by remember { mutableStateOf<String?>(null) }
     val audioLabel = mediaTypeLabel(MediaType.AUDIO)
-    val playContentDescription = stringResource(R.string.embedded_media_play)
-    val pauseContentDescription = stringResource(R.string.embedded_media_pause)
-    val restartContentDescription = stringResource(R.string.embedded_media_restart)
-    val preparingAudioText = stringResource(R.string.embedded_media_status_preparing_audio)
-    val playingText = stringResource(R.string.embedded_media_status_playing)
-    val pausedText = stringResource(R.string.embedded_media_status_paused)
-    val readyToPlayText = stringResource(R.string.embedded_media_status_ready)
-    val audioPlayerState = rememberAudioPlayerState(
-        itemId = item.id,
-        audioData = audioData,
-        unableToStartMessage = stringResource(R.string.embedded_media_error_unable_start_audio),
-        playbackErrorMessage = stringResource(R.string.embedded_media_error_playback),
-        unableToPlayFileMessage = stringResource(R.string.embedded_media_error_unable_play_file),
-        unableToPauseMessage = stringResource(R.string.embedded_media_error_unable_pause_audio),
-        unableToRestartMessage = stringResource(R.string.embedded_media_error_unable_restart_audio)
-    )
     val name = item.linkText.takeIf { it.isNotBlank() }
         ?: item.url.substringAfterLast("/").ifEmpty { audioLabel }
 
-    DisposableEffect(item.id, item.data) {
-        onDispose {
-            audioPlayerState.release()
-        }
-    }
+    val mediaKey = "${activeTabId}:${item.id}"
+    val isActiveItem = playerManager.currentMediaKey == mediaKey
+    val player = if (isActiveItem) playerManager.player else null
+    val sizeText = calculateSizeText(item)
 
-    val statusText = when {
-        audioPlayerState.playbackError != null -> audioPlayerState.playbackError!!
-        audioPlayerState.isPreparing -> preparingAudioText
-        audioPlayerState.isPlaying -> playingText
-        audioPlayerState.isPaused -> pausedText
-        else -> readyToPlayText
-    }
+    PlayerErrorEffect(player, isActiveItem) { playbackError = it }
 
     Box {
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
@@ -650,11 +580,13 @@ private fun LoadedAudioMediaCard(
                     shape = RoundedCornerShape(8.dp)
                 )
                 .combinedClickable(
-                    onClick = { audioPlayerState.togglePlayback() },
+                    onClick = { },
                     onLongClick = { showMenu = true }
                 )
-                .padding(16.dp)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // File info row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -664,63 +596,67 @@ private fun LoadedAudioMediaCard(
                     imageVector = Icons.Default.MusicNote,
                     contentDescription = null,
                     modifier = Modifier.size(28.dp),
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = styles.linkIconColor
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = name,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = styles.bodyMedium,
+                        color = styles.bodyColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "${item.mimeType} - ${formatBytes(audioData.bytes.size)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = statusText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (audioPlayerState.playbackError != null) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
+                        text = "${item.mimeType} - $sizeText",
+                        style = styles.bodySmall,
+                        color = styles.bodyColor.copy(alpha = 0.7f)
                     )
                 }
+            }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    IconButton(
-                        onClick = { audioPlayerState.togglePlayback() },
-                        enabled = !audioPlayerState.isPreparing
+            // Media3 controls — only shown for the active item
+            CompositionLocalProvider(LocalContentColor provides styles.bodyColor) {
+                if (player != null) {
+                    val snapshot = rememberPlaybackSnapshot(player)
+                    PlayerProgressSlider(
+                        player = player,
+                        snapshot = snapshot,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Icon(
-                            imageVector = if (audioPlayerState.isPlaying) {
-                                Icons.Default.Pause
-                            } else {
-                                Icons.Default.PlayArrow
-                            },
-                            contentDescription = if (audioPlayerState.isPlaying) {
-                                pauseContentDescription
-                            } else {
-                                playContentDescription
-                            }
+                        SeekBackButton(player, modifier = Modifier.size(36.dp))
+                        PlayPauseButton(player, modifier = Modifier.size(40.dp))
+                        SeekForwardButton(player, modifier = Modifier.size(36.dp))
+                        PlayerPositionDurationText(
+                            snapshot = snapshot,
+                            modifier = Modifier.weight(1f),
                         )
                     }
-                    IconButton(
-                        onClick = { audioPlayerState.restartPlayback() },
-                        enabled = !audioPlayerState.isPreparing
+                } else {
+                    // Not the active item — show a play button to switch playback here
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Replay,
-                            contentDescription = restartContentDescription
-                        )
+                        IconButton(onClick = { onPlayMedia(item.id) }) {
+                            Icon(
+                                imageVector = Icons.Default.PlayCircle,
+                                contentDescription = stringResource(R.string.embedded_media_action_load_audio),
+                                modifier = Modifier.size(40.dp),
+                                tint = styles.linkIconColor
+                            )
+                        }
                     }
                 }
             }
+
+            PlaybackErrorText(playbackError, styles)
         }
 
         MediaContextMenu(
@@ -729,7 +665,7 @@ private fun LoadedAudioMediaCard(
             url = item.url,
             onOpenInNewTab = onOpenInNewTab,
             onCopyLink = onCopyLink,
-            onDownload = { onDownloadMedia(item.url, audioData, item.mimeType) },
+            onDownload = { onDownloadMedia(item.url, item.data, item.dataFilePath, item.mimeType) },
             extraItems = {
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.embedded_media_hide_audio)) },
@@ -743,6 +679,297 @@ private fun LoadedAudioMediaCard(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class, UnstableApi::class)
+@Composable
+private fun LoadedVideoMediaCard(
+    item: GeminiContent.EmbeddedMedia,
+    styles: CachedTextStyles,
+    playerManager: GemcapPlayerManager,
+    activeTabId: String,
+    onPlayMedia: (Int) -> Unit,
+    onCollapseMedia: (Int) -> Unit,
+    onOpenInNewTab: (String) -> Unit,
+    onCopyLink: (String) -> Unit,
+    onDownloadMedia: (String, StableByteArray?, String?, String) -> Unit,
+    onFullscreen: (Player) -> Unit
+) {
+    var showMenu by remember { mutableStateOf(false) }
+    var playbackError by remember { mutableStateOf<String?>(null) }
+    val videoLabel = mediaTypeLabel(MediaType.VIDEO)
+    val name = item.linkText.takeIf { it.isNotBlank() }
+        ?: item.url.substringAfterLast("/").ifEmpty { videoLabel }
+
+    val mediaKey = "${activeTabId}:${item.id}"
+    val isActiveItem = playerManager.currentMediaKey == mediaKey
+    val player = if (isActiveItem) playerManager.player else null
+    val sizeText = calculateSizeText(item)
+
+    PlayerErrorEffect(player, isActiveItem) { playbackError = it }
+
+    // Pause video when app goes to background; audio is intentionally allowed
+    // to continue playing in the background via MediaSessionService
+    if (isActiveItem) {
+        PauseOnBackgroundEffect(playerManager, mediaKey)
+    }
+
+    Box {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(8.dp)
+                )
+                .combinedClickable(
+                    onClick = { },
+                    onLongClick = { showMenu = true }
+                ),
+            verticalArrangement = Arrangement.spacedBy(0.dp)
+        ) {
+            // Video surface — only attach when this is the active item
+            VideoSurface(player = player, onPlayMedia = { onPlayMedia(item.id) })
+
+            // Info and controls below video
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // File info
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = name,
+                            style = styles.bodyMedium,
+                            color = styles.bodyColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "${item.mimeType} - $sizeText",
+                            style = styles.bodySmall,
+                            color = styles.bodyColor.copy(alpha = 0.7f)
+                        )
+                    }
+                    // Fullscreen button
+                    if (player != null) {
+                        IconButton(onClick = { onFullscreen(player) }) {
+                            Icon(
+                                imageVector = Icons.Default.Fullscreen,
+                                contentDescription = stringResource(R.string.embedded_media_fullscreen),
+                                tint = styles.bodyColor.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                }
+
+                // Controls — only for active item
+                if (player != null) {
+                    VideoControls(player = player, contentColor = styles.bodyColor)
+                }
+
+                PlaybackErrorText(playbackError, styles)
+            }
+        }
+
+        MediaContextMenu(
+            expanded = showMenu,
+            onDismiss = { showMenu = false },
+            url = item.url,
+            onOpenInNewTab = onOpenInNewTab,
+            onCopyLink = onCopyLink,
+            onDownload = { onDownloadMedia(item.url, item.data, item.dataFilePath, item.mimeType) },
+            extraItems = {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.embedded_media_hide_video)) },
+                    onClick = {
+                        showMenu = false
+                        onCollapseMedia(item.id)
+                    }
+                )
+            }
+        )
+    }
+}
+
+@Composable
+private fun PauseOnBackgroundEffect(playerManager: GemcapPlayerManager, mediaKey: String) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP &&
+                playerManager.currentMediaKey == mediaKey
+            ) {
+                playerManager.player?.pause()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+private fun VideoSurface(player: Player?, onPlayMedia: () -> Unit) {
+    if (player != null) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                .background(MaterialTheme.colorScheme.scrim),
+            contentAlignment = Alignment.Center
+        ) {
+            ContentFrame(
+                player = player,
+                surfaceType = SURFACE_TYPE_SURFACE_VIEW,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    } else {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                .background(MaterialTheme.colorScheme.scrim)
+                .clickable { onPlayMedia() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.PlayCircle,
+                contentDescription = stringResource(R.string.embedded_media_action_load_video),
+                modifier = Modifier.size(56.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+            )
+        }
+    }
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+private fun VideoControls(player: Player, contentColor: Color) {
+    CompositionLocalProvider(LocalContentColor provides contentColor) {
+        val snapshot = rememberPlaybackSnapshot(player)
+        PlayerProgressSlider(
+            player = player,
+            snapshot = snapshot,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            PlayPauseButton(player, modifier = Modifier.size(40.dp))
+            PlayerPositionDurationText(
+                snapshot = snapshot,
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+/**
+ * A single-poll playback snapshot so the slider and timestamp always render from the same tick.
+ */
+private data class PlaybackSnapshot(
+    val currentPositionMs: Long = 0L,
+    val durationMs: Long = 0L,
+)
+
+@Composable
+private fun rememberPlaybackSnapshot(player: Player): PlaybackSnapshot {
+    var snapshot by remember { mutableStateOf(PlaybackSnapshot()) }
+    LaunchedEffect(player) {
+        while (isActive) {
+            snapshot = PlaybackSnapshot(
+                currentPositionMs = player.currentPosition,
+                durationMs = player.duration.coerceAtLeast(0L),
+            )
+            delay(200L)
+        }
+    }
+    return snapshot
+}
+
+/**
+ * A progress slider that tracks and allows seeking of the player's current position.
+ * Built using a standard Material3 Slider since media3-ui-compose-material3 1.9.2 does not
+ * include a dedicated progress slider composable.
+ */
+@OptIn(UnstableApi::class)
+@Composable
+private fun PlayerProgressSlider(
+    player: Player,
+    snapshot: PlaybackSnapshot,
+    modifier: Modifier = Modifier
+) {
+    var sliderPosition by remember { mutableFloatStateOf(0f) }
+    var isSeeking by remember { mutableStateOf(false) }
+
+    if (!isSeeking) {
+        val duration = snapshot.durationMs.coerceAtLeast(1L)
+        sliderPosition = (snapshot.currentPositionMs.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+    }
+
+    Slider(
+        value = sliderPosition,
+        onValueChange = { value ->
+            isSeeking = true
+            sliderPosition = value
+        },
+        onValueChangeFinished = {
+            val duration = player.duration
+            if (duration > 0) {
+                player.seekTo((sliderPosition * duration).toLong())
+            }
+            isSeeking = false
+        },
+        modifier = modifier.height(24.dp)
+    )
+}
+
+/**
+ * Drop-in replacement for media3's PositionAndDurationText because I couldn't figure out
+ * how the hell can I color the text in there.
+ */
+@Composable
+private fun PlayerPositionDurationText(
+    snapshot: PlaybackSnapshot,
+    modifier: Modifier = Modifier
+) {
+    val pos = formatPlayerTime(snapshot.currentPositionMs)
+    val dur = formatPlayerTime(snapshot.durationMs)
+
+    Text(
+        text = "$pos / $dur",
+        modifier = modifier,
+        style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+        color = LocalContentColor.current
+    )
+}
+
+private fun formatPlayerTime(timeMs: Long): String {
+    val totalSeconds = (timeMs / 1000).coerceAtLeast(0)
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    return if (hours > 0) {
+        String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format(Locale.US, "%d:%02d", minutes, seconds)
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun LoadedBinaryMediaCard(
@@ -752,7 +979,7 @@ private fun LoadedBinaryMediaCard(
     onCollapseMedia: (Int) -> Unit,
     onOpenInNewTab: (String) -> Unit,
     onCopyLink: (String) -> Unit,
-    onDownloadMedia: (String, StableByteArray, String) -> Unit
+    onDownloadMedia: (String, StableByteArray?, String?, String) -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val mediaLabel = mediaTypeLabel(mediaType)
@@ -804,7 +1031,7 @@ private fun LoadedBinaryMediaCard(
                         text = stringResource(
                             R.string.embedded_media_loaded_format,
                             mediaLabel,
-                            formatBytes(data.bytes.size)
+                            formatBytes(data.bytes.size.toLong())
                         ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -819,7 +1046,7 @@ private fun LoadedBinaryMediaCard(
             url = item.url,
             onOpenInNewTab = onOpenInNewTab,
             onCopyLink = onCopyLink,
-            onDownload = { onDownloadMedia(item.url, data, item.mimeType) },
+            onDownload = { onDownloadMedia(item.url, data, item.dataFilePath, item.mimeType) },
             extraItems = {
                 DropdownMenuItem(
                     text = {
@@ -926,7 +1153,7 @@ private fun buildImageMetadataText(
 ): String {
     val dimensions = extractImageDimensions(imageData)
     val dimensionsText = dimensions?.let { "${it.first} x ${it.second}" } ?: unknownSizeLabel
-    return "$mimeType - $dimensionsText - ${formatBytes(imageData.size)}"
+    return "$mimeType - $dimensionsText - ${formatBytes(imageData.size.toLong())}"
 }
 
 private fun extractImageDimensions(imageData: ByteArray): Pair<Int, Int>? {
@@ -947,24 +1174,3 @@ private fun extractImageDimensions(imageData: ByteArray): Pair<Int, Int>? {
     }
 }
 
-private fun formatBytes(size: Int): String {
-    return when {
-        size < 1024 -> "${size}B"
-        size < 1024 * 1024 -> String.format(Locale.US, "%.1fKB", size / 1024.0)
-        else -> String.format(Locale.US, "%.1fMB", size / (1024.0 * 1024.0))
-    }
-}
-
-private class ByteArrayMediaDataSource(private val data: ByteArray) : MediaDataSource() {
-    override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
-        if (position < 0L || position >= data.size) return -1
-        val start = position.toInt()
-        val length = min(size, data.size - start)
-        System.arraycopy(data, start, buffer, offset, length)
-        return length
-    }
-
-    override fun getSize(): Long = data.size.toLong()
-
-    override fun close() = Unit
-}

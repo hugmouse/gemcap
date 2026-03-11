@@ -162,7 +162,8 @@ class BrowserCallbacksImpl(
     // LinkContextCallbacks
     override fun onCopyLink(url: String) = viewModel.copyLinkToClipboard(url)
     override fun onLoadEmbeddedMedia(itemId: Int) = viewModel.loadEmbeddedMedia(itemId)
+    override fun onPlayEmbeddedMedia(itemId: Int) = viewModel.playEmbeddedMedia(itemId)
     override fun onCollapseEmbeddedMedia(itemId: Int) = viewModel.collapseEmbeddedMedia(itemId)
-    override fun onDownloadEmbeddedMedia(url: String, data: StableByteArray, mimeType: String) =
-        viewModel.downloadEmbeddedMedia(url, data, mimeType)
+    override fun onDownloadEmbeddedMedia(url: String, data: StableByteArray?, dataFilePath: String?, mimeType: String) =
+        viewModel.downloadEmbeddedMedia(url, data, dataFilePath, mimeType)
 }

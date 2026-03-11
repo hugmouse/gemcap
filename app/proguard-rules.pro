@@ -19,3 +19,6 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Media3 - keep service for MediaSession
+-keep class mysh.dev.gemcap.media.GemcapMediaSessionService { *; }

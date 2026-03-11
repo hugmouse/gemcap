@@ -1,5 +1,8 @@
 package mysh.dev.gemcap.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -39,6 +42,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -54,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
@@ -83,8 +89,11 @@ import mysh.dev.gemcap.ui.callbacks.BrowserCallbacksImpl
 import mysh.dev.gemcap.ui.components.ControlBar
 import mysh.dev.gemcap.ui.components.DialogOrchestrator
 import mysh.dev.gemcap.ui.components.TopTabStrip
+import androidx.media3.common.Player
+import mysh.dev.gemcap.media.GemcapPlayerManager
 import mysh.dev.gemcap.ui.content.ContentActions
 import mysh.dev.gemcap.ui.content.ContentItem
+import mysh.dev.gemcap.ui.content.FullscreenVideoDialog
 import mysh.dev.gemcap.ui.content.rememberCachedTextStyles
 import mysh.dev.gemcap.ui.model.ContentUiState
 import mysh.dev.gemcap.ui.model.AddressBarState
@@ -137,6 +146,22 @@ fun BrowserScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val context = LocalContext.current
+        val permissionLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { /* best-effort — playback works without notification */ }
+
+        LaunchedEffect(viewModel.playerManager.player) {
+            if (viewModel.playerManager.player != null &&
+                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED
+            ) {
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
         }
     }
 
@@ -223,7 +248,8 @@ fun BrowserScreen(
         },
         onDismissTabSwitcher = { showTabSwitcher = false },
         snackbarHostState = snackbarHostState,
-        callbacks = callbacks
+        callbacks = callbacks,
+        playerManager = viewModel.playerManager
     )
 }
 
@@ -239,10 +265,12 @@ private fun BrowserScaffold(
     onShowTabSwitcher: () -> Unit,
     onDismissTabSwitcher: () -> Unit,
     snackbarHostState: SnackbarHostState,
-    callbacks: BrowserCallbacks
+    callbacks: BrowserCallbacks,
+    playerManager: GemcapPlayerManager
 ) {
     logRecomposition { ">>> BrowserScaffold" }
 
+    var fullscreenPlayer by remember { mutableStateOf<Player?>(null) }
     val activeTab = contentState.activeTab
     val panelState = dialogsState.panelState
     val homePageUrl = normalizeHomeUrl(
@@ -288,7 +316,9 @@ private fun BrowserScaffold(
                 activeTab = activeTab,
                 contentPadding = innerPadding,
                 searchState = contentState.searchState,
-                callbacks = callbacks
+                callbacks = callbacks,
+                playerManager = playerManager,
+                onFullscreen = { player -> fullscreenPlayer = player }
             )
         }
     }
@@ -314,6 +344,13 @@ private fun BrowserScaffold(
         currentPageUrl = activeTab?.url ?: "",
         callbacks = callbacks
     )
+
+    fullscreenPlayer?.let { player ->
+        FullscreenVideoDialog(
+            player = player,
+            onDismiss = { fullscreenPlayer = null }
+        )
+    }
 }
 
 private fun normalizeHomeUrl(rawUrl: String, searchEngine: SearchEngine): String {
@@ -324,7 +361,7 @@ private fun normalizeHomeUrl(rawUrl: String, searchEngine: SearchEngine): String
     if (trimmed.contains("://")) {
         return trimmed
     }
-    val looksLikeUrl = trimmed.contains(".") && !trimmed.contains(" ")
+    val looksLikeUrl = trimmed.contains(".") && !trimmed.contains(" ") && !trimmed.startsWith(".")
     return if (looksLikeUrl) {
         "gemini://$trimmed"
     } else {
@@ -416,7 +453,9 @@ private fun BrowserContent(
     activeTab: TabState?,
     contentPadding: PaddingValues,
     searchState: SearchState,
-    callbacks: BrowserCallbacks
+    callbacks: BrowserCallbacks,
+    playerManager: GemcapPlayerManager,
+    onFullscreen: (Player) -> Unit
 ) {
     logRecomposition {
         ">>> BrowserContent (isLoading=${activeTab?.isLoading}, hasError=${activeTab?.error != null})"
@@ -462,7 +501,9 @@ private fun BrowserContent(
                     content = activeTab.content,
                     isLoading = activeTab.isLoading,
                     searchState = searchState,
-                    callbacks = callbacks
+                    callbacks = callbacks,
+                    playerManager = playerManager,
+                    onFullscreen = onFullscreen
                 )
             }
         }
@@ -530,7 +571,9 @@ private fun GeminiContentList(
     content: ImmutableList<GeminiContent>,
     isLoading: Boolean,
     searchState: SearchState,
-    callbacks: BrowserCallbacks
+    callbacks: BrowserCallbacks,
+    playerManager: GemcapPlayerManager,
+    onFullscreen: (Player) -> Unit
 ) {
     logRecomposition { ">>> GeminiContentList (${content.size} items)" }
 
@@ -570,15 +613,19 @@ private fun GeminiContentList(
         }
     }
 
-    val contentActions = remember(callbacks) {
+    val contentActions = remember(callbacks, playerManager, tab.id) {
         ContentActions(
             onLinkClick = callbacks::onLinkClick,
             onOpenImageInNewTab = callbacks::onOpenImageInNewTab,
             onCopyLink = callbacks::onCopyLink,
             onOpenInNewTab = callbacks::onOpenInNewTab,
             onLoadEmbeddedMedia = callbacks::onLoadEmbeddedMedia,
+            onPlayEmbeddedMedia = callbacks::onPlayEmbeddedMedia,
             onCollapseEmbeddedMedia = callbacks::onCollapseEmbeddedMedia,
-            onDownloadEmbeddedMedia = callbacks::onDownloadEmbeddedMedia
+            onDownloadEmbeddedMedia = callbacks::onDownloadEmbeddedMedia,
+            playerManager = playerManager,
+            onFullscreen = onFullscreen,
+            activeTabId = tab.id
         )
     }
 

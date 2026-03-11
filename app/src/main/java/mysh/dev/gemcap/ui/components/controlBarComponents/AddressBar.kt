@@ -12,6 +12,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.selectAll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
@@ -88,6 +89,13 @@ fun AddressBar(
                 replace(0, length, url)
                 selection = TextRange(url.length)
             }
+        }
+    }
+
+    // Select all text when the field gains focus (runs after internal focus handling)
+    LaunchedEffect(isFocused) {
+        if (isFocused) {
+            textFieldState.edit { selectAll() }
         }
     }
 

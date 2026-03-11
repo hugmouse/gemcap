@@ -134,8 +134,9 @@ interface SessionCallbacks {
 interface LinkContextCallbacks {
     fun onCopyLink(url: String)
     fun onLoadEmbeddedMedia(itemId: Int)
+    fun onPlayEmbeddedMedia(itemId: Int)
     fun onCollapseEmbeddedMedia(itemId: Int)
-    fun onDownloadEmbeddedMedia(url: String, data: StableByteArray, mimeType: String)
+    fun onDownloadEmbeddedMedia(url: String, data: StableByteArray?, dataFilePath: String?, mimeType: String)
 }
 
 interface BrowserCallbacks :
