@@ -14,6 +14,7 @@ import mysh.dev.gemcap.domain.TofuWarningState
 import mysh.dev.gemcap.network.BackoffManager
 import mysh.dev.gemcap.network.GeminiClient
 import mysh.dev.gemcap.ui.model.DialogState
+import mysh.dev.gemcap.util.GeminiUri
 
 class DialogManager(
     private val client: GeminiClient,
@@ -82,11 +83,7 @@ class DialogManager(
     fun acceptDomainMismatch(): TofuDomainMismatchState? {
         val state = dialogState.tofuDomainMismatch ?: return null
         dialogState = dialogState.copy(tofuDomainMismatch = null)
-        val port = try {
-            java.net.URI(state.pendingUrl).port.let { if (it == -1) 1965 else it }
-        } catch (_: Exception) {
-            1965
-        }
+        val port = GeminiUri.port(state.pendingUrl)
         client.bypassDomainCheck(state.host, port)
         return state
     }

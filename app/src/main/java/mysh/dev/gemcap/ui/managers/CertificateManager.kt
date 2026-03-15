@@ -24,7 +24,7 @@ import mysh.dev.gemcap.ui.model.CertificateState
 import mysh.dev.gemcap.ui.model.DialogState
 import mysh.dev.gemcap.ui.model.IdentityUsageState
 import mysh.dev.gemcap.ui.model.PanelState
-import java.net.URI
+import mysh.dev.gemcap.util.GeminiUri
 
 class CertificateManager(
     private val certRepository: ClientCertRepository,
@@ -71,14 +71,9 @@ class CertificateManager(
     }
 
     fun hasActiveIdentityForUrl(url: String): Boolean {
-        return try {
-            val uri = URI(url)
-            val host = uri.host ?: return false
-            val path = uri.path ?: "/"
-            certRepository.findBestMatch(host, path) != null
-        } catch (e: Exception) {
-            false
-        }
+        val host = GeminiUri.host(url)
+        if (host.isEmpty()) return false
+        return certRepository.findBestMatch(host, GeminiUri.path(url)) != null
     }
 
     // Screen management
@@ -99,9 +94,8 @@ class CertificateManager(
     }
 
     fun showCertificateRequired(statusCode: Int, meta: String, url: String) {
-        val uri = URI(url)
-        val host = uri.host ?: ""
-        val path = uri.path ?: "/"
+        val host = GeminiUri.host(url)
+        val path = GeminiUri.path(url)
         // Show all active, non-expired certs so user can pick any identity
         val allActiveCerts = certRepository.getCertificates()
             .filter { it.isActive && !it.isExpired }
@@ -191,23 +185,18 @@ class CertificateManager(
 
     // Identity usage dialog
     fun showUsageDialog(certificate: ClientCertificate, url: String) {
-        try {
-            val uri = URI(url)
-            val host = uri.host ?: return
-            val path = uri.path ?: "/"
+        val host = GeminiUri.host(url)
+        if (host.isEmpty()) return
 
-            updateDialogState(
-                getDialogState().copy(
-                    identityUsage = IdentityUsageState(
-                        certificate = certificate,
-                        currentHost = host,
-                        currentPath = path
-                    )
+        updateDialogState(
+            getDialogState().copy(
+                identityUsage = IdentityUsageState(
+                    certificate = certificate,
+                    currentHost = host,
+                    currentPath = GeminiUri.path(url)
                 )
             )
-        } catch (e: Exception) {
-            Log.e("CertificateManager", "Failed to parse URL for usage dialog", e)
-        }
+        )
     }
 
     fun dismissUsageDialog() {
@@ -338,21 +327,7 @@ class CertificateManager(
         updateDialogState(getDialogState().copy(certificateDetails = null))
     }
 
-    // TODO: this don't belong here
-    fun getCurrentHost(url: String): String {
-        return try {
-            URI(url).host ?: ""
-        } catch (e: Exception) {
-            ""
-        }
-    }
+    fun getCurrentHost(url: String): String = GeminiUri.host(url)
 
-    // TODO: this don't belong here
-    fun getCurrentPath(url: String): String {
-        return try {
-            URI(url).path ?: "/"
-        } catch (e: Exception) {
-            "/"
-        }
-    }
+    fun getCurrentPath(url: String): String = GeminiUri.path(url)
 }
