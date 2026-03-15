@@ -17,7 +17,6 @@ import java.io.FileOutputStream
 private const val TAG = "ScreenshotUtils"
 private const val BOOKMARK_PREVIEWS_DIR = "bookmark_previews"
 
-// TODO: both methods are quite similar, need to merge them
 object ScreenshotUtils {
 
     /**
@@ -34,33 +33,9 @@ object ScreenshotUtils {
         topCropDp: Int = 110
     ): ImageBitmap? {
         return try {
-            val bitmap = view.drawToBitmap()
-
-            // TODO: calculate this dynamically somehow? Hardcode doesn't feel right
-            val topCropHeight = with(density) { topCropDp.dp.toPx() }.toInt()
-
-            val croppedBitmap = if (bitmap.height > topCropHeight) {
-                Bitmap.createBitmap(
-                    bitmap,
-                    0,
-                    topCropHeight,
-                    bitmap.width,
-                    bitmap.height - topCropHeight
-                )
-            } else {
-                bitmap
-            }
-
-            val scaledBitmap = croppedBitmap.scale(
-                croppedBitmap.width / 4,
-                croppedBitmap.height / 4
-            )
-
+            val scaledBitmap = captureAndCrop(view, density, topCropDp) ?: return null
             val result = scaledBitmap.asImageBitmap()
-
-            if (bitmap != croppedBitmap) bitmap.recycle()
-            if (croppedBitmap != scaledBitmap) croppedBitmap.recycle()
-
+            // Don't recycle — asImageBitmap() wraps the bitmap
             result
         } catch (e: Exception) {
             Log.e(TAG, "Failed to capture screenshot", e)
@@ -79,26 +54,7 @@ object ScreenshotUtils {
         bookmarkId: String
     ): String? {
         return try {
-            val bitmap = view.drawToBitmap()
-
-            // TODO: calculate this dynamically somehow? Hardcode doesn't feel right
-            val topCropHeight = with(density) { 110.dp.toPx() }.toInt()
-            val croppedBitmap = if (bitmap.height > topCropHeight) {
-                Bitmap.createBitmap(
-                    bitmap,
-                    0,
-                    topCropHeight,
-                    bitmap.width,
-                    bitmap.height - topCropHeight
-                )
-            } else {
-                bitmap
-            }
-
-            val scaledBitmap = croppedBitmap.scale(
-                croppedBitmap.width / 4,
-                croppedBitmap.height / 4
-            )
+            val scaledBitmap = captureAndCrop(view, density, 110) ?: return null
 
             val dir = File(context.filesDir, BOOKMARK_PREVIEWS_DIR)
             if (!dir.exists()) dir.mkdirs()
@@ -107,10 +63,6 @@ object ScreenshotUtils {
             FileOutputStream(file).use { out ->
                 scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 80, out)
             }
-
-            // Cleanup
-            if (bitmap != croppedBitmap) bitmap.recycle()
-            if (croppedBitmap != scaledBitmap) croppedBitmap.recycle()
             scaledBitmap.recycle()
 
             file.absolutePath
@@ -118,6 +70,38 @@ object ScreenshotUtils {
             Log.e(TAG, "Failed to save bookmark preview", e)
             null
         }
+    }
+
+    /**
+     * Captures a view, crops the top area, and scales down by 4x.
+     * Caller manages the returned bitmap's lifecycle.
+     */
+    private fun captureAndCrop(view: View, density: Density, topCropDp: Int): Bitmap? {
+        val bitmap = view.drawToBitmap()
+        // TODO: calculate this dynamically somehow? Hardcode doesn't feel right
+        val topCropHeight = with(density) { topCropDp.dp.toPx() }.toInt()
+
+        val croppedBitmap = if (bitmap.height > topCropHeight) {
+            Bitmap.createBitmap(
+                bitmap,
+                0,
+                topCropHeight,
+                bitmap.width,
+                bitmap.height - topCropHeight
+            )
+        } else {
+            bitmap
+        }
+
+        val scaledBitmap = croppedBitmap.scale(
+            croppedBitmap.width / 4,
+            croppedBitmap.height / 4
+        )
+
+        if (bitmap != croppedBitmap) bitmap.recycle()
+        if (croppedBitmap != scaledBitmap) croppedBitmap.recycle()
+
+        return scaledBitmap
     }
 
     /**
