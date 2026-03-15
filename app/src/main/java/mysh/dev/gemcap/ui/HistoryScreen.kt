@@ -2,8 +2,6 @@ package mysh.dev.gemcap.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,7 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
@@ -42,6 +39,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import mysh.dev.gemcap.R
 import kotlinx.collections.immutable.ImmutableList
+import mysh.dev.gemcap.ui.components.EmptyStateBox
+import mysh.dev.gemcap.ui.components.ScreenHeader
 import mysh.dev.gemcap.domain.HistoryEntry
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -75,60 +74,25 @@ fun HistoryScreen(
                     )
                 )
         ) {
-            // Header
-            Surface(
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 2.dp
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = stringResource(R.string.history_title),
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Row {
-                        if (history.isNotEmpty()) {
-                            IconButton(onClick = { showClearConfirmation = true }) {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = stringResource(
-                                        R.string.clear_history_content_description
-                                    )
-                                )
-                            }
-                        }
-                        IconButton(onClick = onDismiss) {
+            ScreenHeader(
+                title = stringResource(R.string.history_title),
+                onDismiss = onDismiss,
+                trailingActions = {
+                    if (history.isNotEmpty()) {
+                        IconButton(onClick = { showClearConfirmation = true }) {
                             Icon(
-                                Icons.Default.Close,
-                                contentDescription = stringResource(R.string.history_close_content_description)
+                                Icons.Default.Delete,
+                                contentDescription = stringResource(
+                                    R.string.clear_history_content_description
+                                )
                             )
                         }
                     }
                 }
-            }
+            )
 
-            // Content
             if (history.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .windowInsetsPadding(
-                            WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)
-                        )
-                        .padding(16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = stringResource(R.string.history_empty_text),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                EmptyStateBox(message = stringResource(R.string.history_empty_text))
             } else {
                 LazyColumn(
                     modifier = Modifier
