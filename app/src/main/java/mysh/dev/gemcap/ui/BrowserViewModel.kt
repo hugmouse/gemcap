@@ -75,7 +75,8 @@ import mysh.dev.gemcap.ui.managers.TabManager
 import mysh.dev.gemcap.ui.model.AutocompleteState
 import mysh.dev.gemcap.ui.model.CertificateState
 import mysh.dev.gemcap.ui.model.DialogState
-import mysh.dev.gemcap.ui.model.HOME_URL
+import mysh.dev.gemcap.domain.GeminiConstants.GEMTEXT_URL
+import mysh.dev.gemcap.domain.GeminiConstants.HOME_URL
 import mysh.dev.gemcap.ui.model.PanelState
 import mysh.dev.gemcap.ui.model.SearchState
 import mysh.dev.gemcap.ui.model.SettingsState
@@ -465,7 +466,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private fun loadLocalPage(url: String): String? {
         val assetName = when (url) {
             HOME_URL -> "home.gmi"
-            "about:gemtext" -> "gemtext.gmi"
+            GEMTEXT_URL -> "gemtext.gmi"
             else -> return null
         }
         return try {
@@ -809,7 +810,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
         val job = viewModelScope.launch {
             var targetUrl = currentTab.url.trim()
-            val isLocalPage = targetUrl == HOME_URL || targetUrl == "about:gemtext"
+            val isLocalPage = targetUrl == HOME_URL || targetUrl == GEMTEXT_URL
 
             // Check if input looks like a domain/URL or a search query
             if (!isLocalPage && !targetUrl.contains("://")) {

@@ -17,9 +17,4 @@ class SearchEngineTest {
         val actual = SearchEngine.TLGS.buildSearchUrl("with/slash")
         assertEquals("gemini://tlgs.one/search?with%2Fslash", actual)
     }
-    @Test
-    fun invalidOrdinalFallsBackToGemcap() {
-        val actual = SearchEngine.fromOrdinal(-1)
-        assertEquals(SearchEngine.GEMCAP, actual)
-    }
 }

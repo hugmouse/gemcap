@@ -1,6 +1,7 @@
 package mysh.dev.gemcap.data
 
 import android.content.Context
+import android.util.Log
 import androidx.core.content.edit
 import mysh.dev.gemcap.domain.Bookmark
 import mysh.dev.gemcap.domain.HistoryEntry
@@ -16,6 +17,7 @@ class BrowserRepository(context: Context) {
 
     // TODO: add ability to customize the history limit?
     companion object {
+        private const val TAG = "BrowserRepository"
         private const val KEY_BOOKMARKS = "bookmarks"
         private const val KEY_HISTORY = "history"
         private const val MAX_HISTORY_ENTRIES = 500
@@ -35,6 +37,7 @@ class BrowserRepository(context: Context) {
                 )
             }
         } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse bookmarks", e)
             emptyList()
         }
     }
@@ -89,7 +92,7 @@ class BrowserRepository(context: Context) {
                 )
             }
         } catch (e: Exception) {
-            // TODO: maybe not ignore the exception here
+            Log.e(TAG, "Failed to parse history", e)
             emptyList()
         }
     }

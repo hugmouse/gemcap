@@ -12,6 +12,7 @@ import kotlinx.collections.immutable.toImmutableList
 import mysh.dev.gemcap.data.BrowserRepository
 import mysh.dev.gemcap.domain.Bookmark
 import mysh.dev.gemcap.ui.model.PanelState
+import java.security.MessageDigest
 import mysh.dev.gemcap.util.ScreenshotUtils
 
 class BookmarkManager(
@@ -39,7 +40,10 @@ class BookmarkManager(
             repository.removeBookmark(url)
         } else {
             val previewPath = if (view != null && density != null) {
-                val bookmarkId = url.hashCode().toString()
+                val bookmarkId = MessageDigest.getInstance("SHA-256")
+                    .digest(url.toByteArray())
+                    .joinToString("") { "%02x".format(it) }
+                    .take(16)
                 ScreenshotUtils.saveBookmarkPreview(application, view, density, bookmarkId)
             } else null
 

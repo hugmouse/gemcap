@@ -2,7 +2,7 @@ package mysh.dev.gemcap.data
 
 import android.content.Context
 import androidx.core.content.edit
-import mysh.dev.gemcap.ui.model.HOME_URL
+import mysh.dev.gemcap.domain.GeminiConstants.HOME_URL
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
@@ -22,11 +22,6 @@ enum class SearchEngine(val displayName: String, private val template: String) {
     GEMCAP("Gemcap", "gemini://gemini-search.mysh.dev/?%s"),
     KENNEDY("Kennedy", "gemini://kennedy.gemi.dev/search?%s"),
     TLGS("TLGS", "gemini://tlgs.one/search?%s");
-    companion object {
-        fun fromOrdinal(ordinal: Int): SearchEngine {
-            return entries.getOrElse(ordinal) { GEMCAP }
-        }
-    }
     fun buildSearchUrl(query: String): String {
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
         return template.format(encodedQuery)
@@ -152,29 +147,30 @@ class SettingsRepository(context: Context) {
 
     var themeMode: ThemeMode
         get() {
-            val ordinal = prefs.getInt(KEY_THEME_MODE, ThemeMode.SYSTEM.ordinal)
-            return ThemeMode.entries.getOrElse(ordinal) { ThemeMode.SYSTEM }
+            val name = prefs.getString(KEY_THEME_MODE, null)
+            return name?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: ThemeMode.SYSTEM
         }
         set(value) {
-            prefs.edit { putInt(KEY_THEME_MODE, value.ordinal) }
+            prefs.edit { putString(KEY_THEME_MODE, value.name) }
         }
 
     var fontSize: FontSize
         get() {
-            val ordinal = prefs.getInt(KEY_FONT_SIZE, FontSize.MEDIUM.ordinal)
-            return FontSize.entries.getOrElse(ordinal) { FontSize.MEDIUM }
+            val name = prefs.getString(KEY_FONT_SIZE, null)
+            return name?.let { runCatching { FontSize.valueOf(it) }.getOrNull() } ?: FontSize.MEDIUM
         }
         set(value) {
-            prefs.edit { putInt(KEY_FONT_SIZE, value.ordinal) }
+            prefs.edit { putString(KEY_FONT_SIZE, value.name) }
         }
     var searchEngine: SearchEngine
         get() {
-            val ordinal = prefs.getInt(KEY_SEARCH_ENGINE, SearchEngine.GEMCAP.ordinal)
-            return SearchEngine.fromOrdinal(ordinal)
+            val name = prefs.getString(KEY_SEARCH_ENGINE, null)
+            return name?.let { runCatching { SearchEngine.valueOf(it) }.getOrNull() } ?: SearchEngine.GEMCAP
         }
         set(value) {
-            prefs.edit { putInt(KEY_SEARCH_ENGINE, value.ordinal) }
+            prefs.edit { putString(KEY_SEARCH_ENGINE, value.name) }
         }
+
     var developerMode: Boolean
         get() = prefs.getBoolean(KEY_DEVELOPER_MODE, false)
         set(value) {

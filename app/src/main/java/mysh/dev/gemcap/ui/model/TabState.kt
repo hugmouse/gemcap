@@ -10,6 +10,7 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import mysh.dev.gemcap.domain.CapsuleIdentity
 import mysh.dev.gemcap.domain.GeminiContent
+import mysh.dev.gemcap.domain.GeminiConstants.HOME_URL
 import mysh.dev.gemcap.domain.GeminiError
 import java.util.Collections
 import java.util.UUID
@@ -34,9 +35,6 @@ data class PersistedHistoryWindow(
     val currentIndex: Int,
     val scrollPositions: Map<String, ScrollPosition>
 )
-
-// TODO: move it out of here somewhere, this does not belong here
-const val HOME_URL = "about:home"
 
 @Stable
 class TabState(

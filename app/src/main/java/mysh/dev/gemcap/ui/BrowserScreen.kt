@@ -100,7 +100,8 @@ import mysh.dev.gemcap.ui.model.ContentUiState
 import mysh.dev.gemcap.ui.model.AddressBarState
 import mysh.dev.gemcap.ui.model.ToolbarState
 import mysh.dev.gemcap.ui.model.DialogsUiState
-import mysh.dev.gemcap.ui.model.HOME_URL
+import mysh.dev.gemcap.domain.GeminiConstants.GEMTEXT_URL
+import mysh.dev.gemcap.domain.GeminiConstants.HOME_URL
 import mysh.dev.gemcap.ui.model.SearchState
 import mysh.dev.gemcap.ui.model.TabState
 import mysh.dev.gemcap.ui.model.TabsUiState
@@ -108,6 +109,7 @@ import mysh.dev.gemcap.ui.theme.rememberTabChrome
 import mysh.dev.gemcap.util.ScreenshotUtils
 
 private const val TAG = "Recomposition"
+private val MAX_CONTENT_WIDTH = 840.dp
 
 private inline fun logRecomposition(message: () -> String) {
     if (BuildConfig.DEBUG) {
@@ -368,7 +370,7 @@ private fun BrowserScaffold(
 
 private fun normalizeHomeUrl(rawUrl: String, searchEngine: SearchEngine): String {
     val trimmed = rawUrl.trim()
-    if (trimmed == HOME_URL || trimmed == "about:gemtext") {
+    if (trimmed == HOME_URL || trimmed == GEMTEXT_URL) {
         return trimmed
     }
     if (trimmed.contains("://")) {
@@ -697,8 +699,8 @@ private fun GeminiContentList(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .width(840.dp)
-                            ) { // TODO: make configurable
+                                    .width(MAX_CONTENT_WIDTH)
+                            ) {
                                 ContentItem(
                                     item = item,
                                     styles = cachedStyles,

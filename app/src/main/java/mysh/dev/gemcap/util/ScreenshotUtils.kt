@@ -19,6 +19,8 @@ private const val BOOKMARK_PREVIEWS_DIR = "bookmark_previews"
 
 object ScreenshotUtils {
 
+    private const val DEFAULT_TOP_CROP_DP = 110
+
     /**
      * Captures a screenshot of the given view, crops the top UI area, and scales it down
      *
@@ -30,7 +32,7 @@ object ScreenshotUtils {
     fun captureAndCropScreenshot(
         view: View,
         density: Density,
-        topCropDp: Int = 110
+        topCropDp: Int = DEFAULT_TOP_CROP_DP
     ): ImageBitmap? {
         return try {
             val scaledBitmap = captureAndCrop(view, density, topCropDp) ?: return null
@@ -54,7 +56,7 @@ object ScreenshotUtils {
         bookmarkId: String
     ): String? {
         return try {
-            val scaledBitmap = captureAndCrop(view, density, 110) ?: return null
+            val scaledBitmap = captureAndCrop(view, density, DEFAULT_TOP_CROP_DP) ?: return null
 
             val dir = File(context.filesDir, BOOKMARK_PREVIEWS_DIR)
             if (!dir.exists()) dir.mkdirs()
@@ -78,7 +80,6 @@ object ScreenshotUtils {
      */
     private fun captureAndCrop(view: View, density: Density, topCropDp: Int): Bitmap? {
         val bitmap = view.drawToBitmap()
-        // TODO: calculate this dynamically somehow? Hardcode doesn't feel right
         val topCropHeight = with(density) { topCropDp.dp.toPx() }.toInt()
 
         val croppedBitmap = if (bitmap.height > topCropHeight) {
