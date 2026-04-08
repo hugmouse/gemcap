@@ -83,9 +83,9 @@ import mysh.dev.gemcap.ui.model.SettingsState
 import mysh.dev.gemcap.ui.model.TabState
 import mysh.dev.gemcap.R
 import mysh.dev.gemcap.util.DownloadUtils
+import mysh.dev.gemcap.util.GeminiUri
 import java.net.URI
 import java.net.URISyntaxException
-import java.net.URLEncoder
 
 // Don't you love when one view model literally controls everything?
 // TODO: try to refactor it
@@ -360,14 +360,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         val prompt = dialogManager.getInputPrompt() ?: return
         dialogManager.dismissInputPrompt()
 
-        val encodedInput = URLEncoder.encode(userInput, "UTF-8")
         val targetUrl = prompt.targetUrl
-        val newUrl = if (targetUrl.contains("%s")) {
-            targetUrl.replace("%s", encodedInput)
-        } else {
-            val uri = URI(targetUrl)
-            URI(uri.scheme, uri.authority, uri.path, encodedInput, null).toString()
-        }
+        val newUrl = GeminiUri.buildInputUrl(targetUrl, userInput)
 
         pendingInputCertAlias?.let { alias ->
             certificateManager.setPendingCertAlias(alias)
