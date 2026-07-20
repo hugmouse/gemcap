@@ -2,11 +2,6 @@
 
 # Gemcap
 
-> [!WARNING]
-> This project is now archived. It will no longer receive updates.
->
-> The main reason is that it got too complicated for me – especially as it was my first Kotlin project – and I found it difficult to make it snappy. Feel free to fork it though. And I will probably keep the Google Group going for the time being.
-
 An Android browser for the Gemini protocol, built with Kotlin.
 
 ## Join the closed testing
